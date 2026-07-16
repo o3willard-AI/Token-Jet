@@ -6,17 +6,55 @@ Token-Jet wraps [llama.cpp](https://github.com/ggml-org/llama.cpp) into a smart 
 
 ## Quick Start
 
-```bash
-# 1. Deploy to your Jetson
-./scripts/deploy.sh 192.168.1.100
+### On the Jetson (one-time setup)
 
-# 2. SSH in and start
+```bash
+# Clone and deploy
+git clone https://github.com/o3willard-AI/Token-Jet.git
+cd Token-Jet
+./scripts/deploy.sh <jetson-ip>
+
+# SSH in and start serving
 ssh jetson
 jetson-infer start
+```
 
-# 3. Point your agent at it
-# OpenCode:  opencode --api-base http://192.168.1.100:1234/v1
-# PI:        api_base: http://192.168.1.100:1234/v1
+### On your workstation (one-time setup)
+
+```bash
+# Download the connect script
+curl -O https://raw.githubusercontent.com/o3willard-AI/Token-Jet/main/token-jet-connect
+chmod +x token-jet-connect
+
+# Run it — installs OpenCode, configures the tunnel, sets up launchers
+./token-jet-connect <jetson-ip>
+```
+
+### Daily use
+
+```bash
+# Launch OpenCode TUI (auto-connects to Jetson)
+token-jet-opencode
+
+# In the TUI: press /connect → select LMStudio
+# Model name doesn't matter — the Jetson uses its loaded model
+
+# CLI one-shot:
+token-jet-opencode run --model lmstudio/openai/gpt-oss-20b "your prompt"
+```
+
+### Other agents
+
+Any OpenAI-compatible client can connect directly:
+
+```bash
+# PI
+api_base: http://<jetson-ip>:1234/v1
+
+# curl
+curl http://<jetson-ip>:1234/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"hello"}],"max_tokens":50}'
 ```
 
 ## Features
@@ -72,6 +110,7 @@ The per-token cost (144 KB) was empirically measured from Jetson Orin — it's ~
 Token-Jet/
 ├── jetson-infer              # The inference server utility
 ├── jetson-infer.service      # Systemd service file
+├── token-jet-connect         # One-command OpenCode + tunnel setup for workstations
 ├── docs/
 │   ├── model-results.md      # Full eval results (coding + IT troubleshooting)
 │   ├── bonsai-27b.md         # 27B dead-end investigation

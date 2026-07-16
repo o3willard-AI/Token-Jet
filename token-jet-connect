@@ -1,0 +1,152 @@
+#!/bin/bash
+# Token-Jet Connect — one-time setup to link OpenCode to a Token-Jet Jetson.
+# Usage: token-jet-connect <jetson-ip> [user]
+# Example: token-jet-connect 192.168.101.10 sblanken
+
+set -e
+
+JETSON_IP="${1:?Usage: token-jet-connect <jetson-ip> [user]}"
+JETSON_USER="${2:-sblanken}"
+
+echo ""
+echo "  ╔══════════════════════════════════════╗"
+echo "  ║       Token-Jet Connect             ║"
+echo "  ╚══════════════════════════════════════╝"
+echo ""
+
+# 1. Verify prerequisites
+echo "→ Checking prerequisites..."
+command -v node >/dev/null 2>&1 || { echo "Node.js not found. Install: sudo apt install nodejs npm"; exit 1; }
+command -v ssh >/dev/null 2>&1 || { echo "SSH not found."; exit 1; }
+echo "  ✓ Node.js $(node --version)"
+echo "  ✓ npm $(npm --version)"
+echo "  ✓ SSH available"
+
+# 2. Check Jetson reachability
+echo ""
+echo "→ Checking Jetson at ${JETSON_IP}..."
+if ! ping -c1 -W2 "${JETSON_IP}" >/dev/null 2>&1; then
+    echo "  ✗ Cannot reach ${JETSON_IP}"
+    exit 1
+fi
+echo "  ✓ Jetson reachable"
+
+# 3. Check SSH access
+echo ""
+echo "→ Checking SSH to ${JETSON_USER}@${JETSON_IP}..."
+if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "${JETSON_USER}@${JETSON_IP}" 'echo ok' >/dev/null 2>&1; then
+    echo "  Key-based SSH not set up. Testing password..."
+    if ! sshpass -p '101abn' ssh -o ConnectTimeout=5 "${JETSON_USER}@${JETSON_IP}" 'echo ok' >/dev/null 2>&1; then
+        echo "  ✗ Cannot SSH to Jetson. Set up SSH keys or check credentials."
+        exit 1
+    fi
+    echo "  ✓ Password SSH works (will use sshpass for tunnel)"
+    USE_SSHPASS=1
+else
+    echo "  ✓ Key-based SSH works"
+    USE_SSHPASS=0
+fi
+
+# 4. Check inference server
+echo ""
+echo "→ Checking inference server on ${JETSON_IP}:1234..."
+if ! curl -s "http://${JETSON_IP}:1234/health" | grep -q '"status":"ok"'; then
+    echo "  Warning: Inference server not responding. Start with:"
+    echo "    ssh ${JETSON_USER}@${JETSON_IP} 'jetson-infer start'"
+else
+    echo "  ✓ Server healthy"
+fi
+
+# 5. Install OpenCode
+echo ""
+echo "→ Installing OpenCode..."
+if command -v opencode >/dev/null 2>&1; then
+    echo "  OpenCode already installed: $(opencode --version 2>&1 | head -1)"
+else
+    npm install -g opencode-ai 2>&1 | tail -1 || true
+    if ! command -v opencode >/dev/null 2>&1; then
+        echo "  Global install needs sudo. Trying with sudo..."
+        echo "101abn" | sudo -S npm install -g opencode-ai 2>&1 | tail -3
+    fi
+    echo "  ✓ OpenCode $(opencode --version 2>&1 | head -1) installed"
+fi
+
+# 6. Configure OpenCode for LMStudio
+echo ""
+echo "→ Configuring OpenCode..."
+mkdir -p ~/.local/share/opencode
+cat > ~/.local/share/opencode/auth.json << 'AUTH'
+{
+  "lmstudio": {
+    "type": "api",
+    "key": "token-jet"
+  }
+}
+AUTH
+echo "  ✓ OpenCode configured for LMStudio"
+
+# 7. Create tunnel launcher
+echo ""
+echo "→ Creating tunnel launcher..."
+mkdir -p ~/bin
+
+if [ "$USE_SSHPASS" = "1" ]; then
+    cat > ~/bin/token-jet-ensure-tunnel << TUNNEL
+#!/bin/bash
+# Auto-started by token-jet-opencode. Keeps tunnel alive.
+if ! nc -z localhost 1234 2>/dev/null; then
+    sshpass -p '101abn' ssh -o StrictHostKeyChecking=no -f -N \
+        -L 1234:${JETSON_IP}:1234 ${JETSON_USER}@${JETSON_IP} 2>/dev/null
+fi
+TUNNEL
+else
+    cat > ~/bin/token-jet-ensure-tunnel << TUNNEL
+#!/bin/bash
+if ! nc -z localhost 1234 2>/dev/null; then
+    ssh -o StrictHostKeyChecking=no -f -N \
+        -L 1234:${JETSON_IP}:1234 ${JETSON_USER}@${JETSON_IP} 2>/dev/null
+fi
+TUNNEL
+fi
+chmod +x ~/bin/token-jet-ensure-tunnel
+echo "  ✓ Tunnel launcher: ~/bin/token-jet-ensure-tunnel"
+
+# 8. Create OpenCode wrapper
+cat > ~/bin/token-jet-opencode << WRAPPER
+#!/bin/bash
+# OpenCode → Token-Jet (${JETSON_IP})
+~/bin/token-jet-ensure-tunnel
+exec opencode "\$@"
+WRAPPER
+chmod +x ~/bin/token-jet-opencode
+
+# Add to PATH
+grep -q '$HOME/bin' ~/.bashrc 2>/dev/null || echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+export PATH="$HOME/bin:$PATH"
+
+echo "  ✓ Launcher: ~/bin/token-jet-opencode"
+
+# 9. Verify
+echo ""
+echo "→ Verifying connection..."
+~/bin/token-jet-ensure-tunnel
+sleep 1
+if curl -s http://localhost:1234/health | grep -q '"status":"ok"'; then
+    echo "  ✓ Tunnel active — localhost:1234 → ${JETSON_IP}:1234"
+else
+    echo "  ⚠ Tunnel check failed. The Jetson server may need to be started."
+fi
+
+echo ""
+echo "  ╔══════════════════════════════════════╗"
+echo "  ║       Setup Complete!               ║"
+echo "  ╚══════════════════════════════════════╝"
+echo ""
+echo "  Daily use:"
+echo "    token-jet-opencode              # Launch TUI"
+echo "    token-jet-opencode run \\"     # CLI one-shot"
+echo "      --model lmstudio/openai/gpt-oss-20b \\"
+echo "      \"your prompt\""
+echo ""
+echo "  In the TUI, press /connect and select LMStudio."
+echo "  Model name doesn't matter — the Jetson uses its loaded model."
