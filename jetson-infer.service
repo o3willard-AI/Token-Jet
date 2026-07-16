@@ -1,0 +1,21 @@
+[Unit]
+Description=Jetson Inference Server (jetson-infer)
+After=network.target
+
+[Service]
+Type=simple
+User=sblanken
+WorkingDirectory=/home/sblanken
+Environment=LD_LIBRARY_PATH=/usr/local/cuda-13.2/targets/sbsa-linux/lib
+ExecStart=/home/sblanken/bin/jetson-infer start --model 8B
+ExecStop=/home/sblanken/bin/jetson-infer stop
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/tmp/jetson-infer-service.log
+StandardError=append:/tmp/jetson-infer-service.log
+
+# Give plenty of time for model loading from slow eMMC
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target

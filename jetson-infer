@@ -1,0 +1,403 @@
+#!/usr/bin/env python3
+"""
+jetson-infer — Smart inference server for Jetson Orin Nano.
+
+Starts llama-server with the optimal model and context window based on
+available shared memory. Exposes an OpenAI-compatible API on the local
+network for external agents (PI, OpenCode, etc.).
+
+Usage:
+  jetson-infer start              # Start with best model, auto context
+  jetson-infer start --model 4B   # Start with specific model
+  jetson-infer status             # Show current server status
+  jetson-infer stop               # Stop the server
+  jetson-infer models             # List available models with scores
+"""
+
+import argparse
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+# ── Configuration ──────────────────────────────────────────
+HOST = "0.0.0.0"
+PORT = 1234
+SAFETY_MARGIN_MB = 512  # Leave 512 MB for OS
+MIN_FREE_MB = 256       # Minimum free memory after loading
+LOG_FILE = "/tmp/jetson-infer.log"
+PID_FILE = "/tmp/jetson-infer.pid"
+
+# Available models — ordered by preference (best first)
+MODELS = {
+    "8B": {
+        "name": "Ternary-Bonsai-8B",
+        "path": "/home/sblanken/models/Ternary-Bonsai-8B-Q2_0.gguf",
+        "server_bin": "/home/sblanken/llama.cpp-prism/build/bin/llama-server",
+        "size_gb": 2.03,
+        "score_coding": "4/5",
+        "score_it": "2/5",
+        "speed_ts": 8.4,
+        "description": "Best overall. 8B ternary (1.58-bit). Only fails CircularBuffer.",
+        # Architecture params for KV cache calculation (Qwen3-8B GQA)
+        "n_layers": 32,
+        "n_kv_heads": 4,
+        "head_dim": 128,
+        "max_ctx": 32768,  # Model's native max
+    },
+    "4B": {
+        "name": "Ternary-Bonsai-4B",
+        "path": "/home/sblanken/models/Ternary-Bonsai-4B-Q2_0.gguf",
+        "server_bin": "/home/sblanken/llama.cpp-prism/build/bin/llama-server",
+        "size_gb": 1.02,
+        "score_coding": "3/5",
+        "score_it": "1/5",
+        "speed_ts": 16.3,
+        "description": "2× faster. Lower accuracy. Best for interactive/latency-sensitive use.",
+        "n_layers": 24,
+        "n_kv_heads": 2,
+        "head_dim": 128,
+        "max_ctx": 32768,
+    },
+    "gemma": {
+        "name": "Gemma-3-1B",
+        "path": "/home/sblanken/models/Gemma-3-1B-it-GLM-4.7-Flash-Heretic-Uncensored-Thinking_F16.gguf",
+        "server_bin": "/home/sblanken/llama.cpp/build/bin/llama-server",
+        "size_gb": 1.86,
+        "score_coding": "2/5",
+        "score_it": "1/5",
+        "speed_ts": 15.6,
+        "description": "Weakest coder. Comment loops, stub copy-paste. Fast but unreliable.",
+        "n_layers": 16,
+        "n_kv_heads": 1,
+        "head_dim": 256,
+        "max_ctx": 8192,
+    },
+    "27B": {
+        "name": "Bonsai-27B (UNSTABLE)",
+        "path": "/home/sblanken/models/Bonsai-27B-Q1_0.gguf",
+        "server_bin": "/home/sblanken/llama.cpp-prism/build/bin/llama-server",
+        "size_gb": 3.53,
+        "score_coding": "0/5*",
+        "score_it": "N/A",
+        "speed_ts": 3.2,
+        "description": "DEAD END. Qwen3.5 hybrid (SSM+attn). Loads & benchmarks but crashes on real inference. Chat API broken (thinking mode). Completion endpoint unstable. 1-bit collapse. FOR EXPERIMENTS ONLY.",
+        "n_layers": 48,
+        "n_kv_heads": 8,
+        "head_dim": 128,
+        "max_ctx": 4096,  # Keep small — server crashes at longer ctx
+    },
+}
+
+DEFAULT_MODEL = "8B"
+LD_LIBRARY_PATH = "/usr/local/cuda-13.2/targets/sbsa-linux/lib"
+
+
+# ── Memory / Context Calculation ────────────────────────────
+
+def get_free_memory_mb():
+    """Get available memory in MB from /proc/meminfo."""
+    try:
+        with open("/proc/meminfo") as f:
+            meminfo = f.read()
+        # MemAvailable is the best estimate of usable memory
+        m = re.search(r"MemAvailable:\s+(\d+)\s+kB", meminfo)
+        if m:
+            return int(m.group(1)) // 1024
+        # Fallback: MemFree + Cached
+        free = re.search(r"MemFree:\s+(\d+)\s+kB", meminfo)
+        cached = re.search(r"Cached:\s+(\d+)\s+kB", meminfo)
+        if free and cached:
+            return (int(free.group(1)) + int(cached.group(1))) // 1024
+    except:
+        pass
+    return 1024  # Conservative default
+
+
+def calculate_max_context(model_info, free_memory_mb):
+    """Calculate the largest context window that fits in available memory.
+    
+    KV cache per token ≈ (model_size_impact * 2.2) bytes.
+    Empirically, llama.cpp on Jetson Orin uses ~140 KB per token for 8B Qwen3.
+    This is ~4.4× the theoretical minimum due to CUDA alignment, overhead, etc.
+    """
+    available_mb = free_memory_mb - model_info["size_gb"] * 1024 - SAFETY_MARGIN_MB
+    if available_mb < MIN_FREE_MB:
+        available_mb = MIN_FREE_MB
+    
+    # Empirical per-token cost (measured from cudaMalloc failure at 32768 tokens = 4608 MB)
+    # 4608 MB / 32768 tokens ≈ 144 KB/token for 8B. Scale by model params.
+    kb_per_token = 144 * (model_info["size_gb"] / 2.03)  # Scale relative to 8B baseline
+    
+    kv_budget_mb = available_mb * 0.85  # 85% for KV cache
+    
+    max_ctx = int(kv_budget_mb / (kb_per_token / 1024))
+    
+    # Clamp
+    max_ctx = min(max_ctx, model_info["max_ctx"])
+    max_ctx = max(max_ctx, 2048)
+    
+    # Round down to nearest step
+    steps = [2048, 4096, 6144, 8192, 12288, 16384, 20480, 24576, 32768]
+    for i, step in enumerate(steps):
+        if step > max_ctx:
+            max_ctx = steps[i - 1] if i > 0 else steps[0]
+            break
+    return max_ctx
+
+
+# ── Server Management ───────────────────────────────────────
+
+def is_running(port=PORT):
+    """Check if server is currently running and healthy."""
+    try:
+        import urllib.request
+        r = urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2)
+        return b'"status":"ok"' in r.read()
+    except:
+        return False
+
+
+def get_pid():
+    """Get PID of running server from PID file."""
+    try:
+        with open(PID_FILE) as f:
+            return int(f.read().strip())
+    except:
+        return None
+
+
+def start_server(model_key, port=PORT):
+    """Start llama-server with optimal configuration."""
+    if model_key not in MODELS:
+        print(f"Unknown model: {model_key}. Available: {list(MODELS.keys())}")
+        sys.exit(1)
+    
+    model = MODELS[model_key]
+    
+    if is_running(port):
+        print("Server already running. Use 'jetson-infer stop' first.")
+        sys.exit(1)
+    
+    free_mb = get_free_memory_mb()
+    ctx_size = calculate_max_context(model, free_mb)
+    
+    print(f"Model:       {model['name']}")
+    print(f"Size:        {model['size_gb']:.2f} GB")
+    print(f"Speed:       {model['speed_ts']} t/s")
+    print(f"Coding:      {model['score_coding']}")
+    print(f"IT Support:  {model['score_it']}")
+    print(f"Free RAM:    {free_mb} MB")
+    print(f"Context:     {ctx_size} tokens")
+    print(f"KV budget:   ~{ctx_size * model['n_layers'] * model['n_kv_heads'] * model['head_dim'] * 2 // (1024*1024)} MB")
+    print(f"Endpoint:    http://{HOST}:{port}")
+    print(f"Chat API:    http://{HOST}:{port}/v1/chat/completions")
+    print(f"Health:      http://{HOST}:{port}/health")
+    print()
+    
+    env = os.environ.copy()
+    env["LD_LIBRARY_PATH"] = LD_LIBRARY_PATH
+    
+    cmd = [
+        model["server_bin"],
+        "-m", model["path"],
+        "--host", HOST,
+        "--port", str(port),
+        "--n-gpu-layers", "99",
+        "--ctx-size", str(ctx_size),
+    ]
+    
+    print(f"Starting: {' '.join(cmd)}")
+    print(f"Logs: {LOG_FILE}")
+    
+    with open(LOG_FILE, "w") as log:
+        proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env)
+    
+    # Write PID
+    with open(PID_FILE, "w") as f:
+        f.write(str(proc.pid))
+    
+    # Wait for health
+    print("Waiting for server to become healthy...", end="", flush=True)
+    for i in range(300):  # 10 minutes max
+        time.sleep(2)
+        if is_running(port):
+            print(f" ready! ({i*2}s)")
+            print()
+            print("Server is running. Agents can connect at:")
+            print(f"  http://<jetson-ip>:{port}/v1/chat/completions")
+            print()
+            print("Configure your agent's OpenAI-compatible endpoint to this URL.")
+            print("Example for PI: set api_base to http://192.168.101.10:1234/v1")
+            return
+        print(".", end="", flush=True)
+    
+    print(" timeout!")
+    print("Check logs: tail -f", LOG_FILE)
+    sys.exit(1)
+
+
+def stop_server():
+    """Stop the running server."""
+    pid = get_pid()
+    if pid:
+        try:
+            os.kill(pid, signal.SIGTERM)
+            time.sleep(2)
+            print("Server stopped.")
+        except ProcessLookupError:
+            print("Server was not running.")
+        except Exception as e:
+            print(f"Error stopping server: {e}")
+    else:
+        # Fallback: kill all llama-server processes
+        subprocess.run(["pkill", "-f", "llama-server"], stderr=subprocess.DEVNULL)
+        print("Server stopped (pkill fallback).")
+    
+    # Clean up
+    for f in [PID_FILE]:
+        try:
+            os.remove(f)
+        except:
+            pass
+
+
+def show_status():
+    """Show current server status."""
+    if is_running():
+        print("Server: RUNNING")
+        print(f"URL:   http://{HOST}:{PORT}")
+        print(f"Chat:  http://{HOST}:{PORT}/v1/chat/completions")
+        
+        pid = get_pid()
+        if pid:
+            print(f"PID:   {pid}")
+        
+        # Try to get model info from the server
+        try:
+            import urllib.request
+            resp = json.loads(urllib.request.urlopen(
+                urllib.request.Request(f"http://127.0.0.1:{PORT}/v1/models"),
+                timeout=5).read())
+            for m in resp.get("data", []):
+                print(f"Model: {m.get('id', 'unknown')}")
+        except:
+            pass
+        
+        # Memory info
+        free_mb = get_free_memory_mb()
+        print(f"Free:  {free_mb} MB")
+    else:
+        print("Server: NOT RUNNING")
+        free_mb = get_free_memory_mb()
+        print(f"Free:  {free_mb} MB")
+        print()
+        print("Available models:")
+        show_models()
+
+
+def show_models():
+    """List available models."""
+    free_mb = get_free_memory_mb()
+    print(f"Free memory: {free_mb} MB")
+    print()
+    print(f"{'Key':<8} {'Model':<25} {'Size':<8} {'Speed':<8} {'Coding':<8} {'IT':<8} {'Max Ctx':<10}")
+    print("-" * 80)
+    for key, m in MODELS.items():
+        ctx = calculate_max_context(m, free_mb)
+        print(f"{key:<8} {m['name']:<25} {m['size_gb']:.1f} GB  {m['speed_ts']:.1f} t/s  {m['score_coding']:<8} {m['score_it']:<8} {ctx}")
+    print()
+    print(f"Default: {DEFAULT_MODEL}")
+
+
+def install_service():
+    """Install systemd service for auto-start on boot."""
+    service_file = Path(__file__).parent / "jetson-infer.service"
+    systemd_path = Path.home() / ".config/systemd/user/jetson-infer.service"
+    
+    if not service_file.exists():
+        print(f"Service file not found: {service_file}")
+        print("Create jetson-infer.service in the same directory as this script.")
+        sys.exit(1)
+    
+    # Create systemd user directory
+    systemd_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Copy service file
+    systemd_path.write_text(service_file.read_text())
+    print(f"Installed: {systemd_path}")
+    
+    # Enable and start
+    subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
+    subprocess.run(["systemctl", "--user", "enable", "jetson-infer"], check=False)
+    print()
+    print("Service installed. Commands:")
+    print("  systemctl --user start jetson-infer    # Start now")
+    print("  systemctl --user status jetson-infer   # Check status")
+    print("  systemctl --user stop jetson-infer     # Stop")
+    print("  journalctl --user -u jetson-infer -f   # Follow logs")
+    print()
+    print("Note: 'linger' must be enabled for user services to start at boot:")
+    print("  sudo loginctl enable-linger sblanken")
+    
+    # Try to enable linger with sudo
+    try:
+        subprocess.run(["sudo", "loginctl", "enable-linger", "sblanken"],
+                      check=False, timeout=10)
+        print("  (linger enabled automatically)")
+    except:
+        pass
+
+
+# ── CLI ─────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="jetson-infer — Smart inference server for Jetson Orin Nano",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  jetson-infer start                Start with best model (8B)
+  jetson-infer start --model 4B     Start with 4B model
+  jetson-infer status               Show server status
+  jetson-infer stop                 Stop the server
+  jetson-infer models               List available models
+        """
+    )
+    sub = parser.add_subparsers(dest="command", help="Command")
+    
+    start_parser = sub.add_parser("start", help="Start inference server")
+    start_parser.add_argument("--model", default=DEFAULT_MODEL,
+                              choices=list(MODELS.keys()),
+                              help=f"Model to load (default: {DEFAULT_MODEL})")
+    start_parser.add_argument("--port", type=int, default=PORT,
+                              help=f"Port to listen on (default: {PORT})")
+    
+    sub.add_parser("stop", help="Stop inference server")
+    sub.add_parser("status", help="Show server status")
+    sub.add_parser("models", help="List available models")
+    sub.add_parser("install", help="Install systemd service for auto-start on boot")
+    
+    args = parser.parse_args()
+    
+    if args.command == "start":
+        start_server(args.model, args.port)
+    elif args.command == "stop":
+        stop_server()
+    elif args.command == "status":
+        show_status()
+    elif args.command == "models":
+        show_models()
+    elif args.command == "install":
+        install_service()
+    else:
+        parser.print_help()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
