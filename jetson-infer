@@ -39,80 +39,45 @@ WATCHDOG_LOG = "/tmp/jetson-watchdog.log"
 
 # Available models — ordered by preference (best first)
 MODELS = {
+    "MiniCPM5": {
+        "name": "MiniCPM5-1B (Claude-distilled)",
+        "path": "/home/sblanken/models/MiniCPM5-1B-Claude-Opus-Fable5-Thinking-Q8_0.gguf",
+        "server_bin": "/home/sblanken/llama.cpp/build/bin/llama-server",
+        "size_gb": 1.13,
+        "speed_ts": 31.2,
+        "description": "Fastest. Claude-distilled thinking model. 31 t/s, 16K context. Best for interactive use.",
+        "n_layers": 16,
+        "n_kv_heads": 2,
+        "head_dim": 128,
+        "max_ctx": 16384,
+    },
+    "qwen3.5": {
+        "name": "Qwen3.5-4B-Coder",
+        "path": "/home/sblanken/models/qwen3.5-4B-super-coder.Q4_0.gguf",
+        "server_bin": "/home/sblanken/llama.cpp/build/bin/llama-server",
+        "size_gb": 2.49,
+        "speed_ts": 20.0,
+        "description": "Solid all-rounder. 2.4× faster than Bonsai-8B. 8K context.",
+        "n_layers": 28,
+        "n_kv_heads": 4,
+        "head_dim": 128,
+        "max_ctx": 8192,
+    },
     "8B": {
         "name": "Ternary-Bonsai-8B",
         "path": "/home/sblanken/models/Ternary-Bonsai-8B-Q2_0.gguf",
         "server_bin": "/home/sblanken/llama.cpp-prism/build/bin/llama-server",
         "size_gb": 2.03,
-        "score_coding": "4/5",
-        "score_it": "2/5",
         "speed_ts": 8.4,
-        "description": "Best overall. 8B ternary (1.58-bit). Only fails CircularBuffer.",
-        # Architecture params for KV cache calculation (Qwen3-8B GQA)
+        "description": "Highest accuracy. 1.58-bit ternary. Handles complex code the others miss. 16K context.",
         "n_layers": 32,
         "n_kv_heads": 4,
         "head_dim": 128,
-        "max_ctx": 32768,  # Model's native max
-    },
-    "4B": {
-        "name": "Ternary-Bonsai-4B",
-        "path": "/home/sblanken/models/Ternary-Bonsai-4B-Q2_0.gguf",
-        "server_bin": "/home/sblanken/llama.cpp-prism/build/bin/llama-server",
-        "size_gb": 1.02,
-        "score_coding": "3/5",
-        "score_it": "1/5",
-        "speed_ts": 16.3,
-        "description": "2× faster. Lower accuracy. Best for interactive/latency-sensitive use.",
-        "n_layers": 24,
-        "n_kv_heads": 2,
-        "head_dim": 128,
         "max_ctx": 32768,
-    },
-    "gemma": {
-        "name": "Gemma-3-1B",
-        "path": "/home/sblanken/models/Gemma-3-1B-it-GLM-4.7-Flash-Heretic-Uncensored-Thinking_F16.gguf",
-        "server_bin": "/home/sblanken/llama.cpp/build/bin/llama-server",
-        "size_gb": 1.86,
-        "score_coding": "2/5",
-        "score_it": "1/5",
-        "speed_ts": 15.6,
-        "description": "Weakest coder. Comment loops, stub copy-paste. Fast but unreliable.",
-        "n_layers": 16,
-        "n_kv_heads": 1,
-        "head_dim": 256,
-        "max_ctx": 8192,
-    },
-    "27B-Q2": {
-        "name": "Ternary-Bonsai-27B Q2_0",
-        "path": "/home/sblanken/models/Ternary-Bonsai-27B-Q2_0.gguf",
-        "server_bin": "/home/sblanken/llama.cpp-prism/build/bin/llama-server",
-        "size_gb": 6.69,
-        "score_coding": "TBD",
-        "score_it": "TBD",
-        "speed_ts": 0,  # TBD — benchmark first
-        "description": "NEW. 27B at 2-bit ternary (same format as 8B). Should be faster + smarter than Q1_0. Very tight on 7.3GiB RAM — may need minimal context.",
-        "n_layers": 48,
-        "n_kv_heads": 8,
-        "head_dim": 128,
-        "max_ctx": 4096,  # Conservative — memory is tight
-    },
-    "27B-dspark": {
-        "name": "Bonsai-27B dspark (DRAFTER)",
-        "path": "/home/sblanken/models/Bonsai-27B-dspark-Q4_1.gguf",
-        "server_bin": "/home/sblanken/llama.cpp-prism/build/bin/llama-server",
-        "size_gb": 1.72,
-        "score_coding": "N/A",
-        "score_it": "N/A",
-        "speed_ts": 33.6,
-        "description": "FAST (33.6 t/s) but speculative drafter only. Tokenizer broken for real inference. For benchmarking experiments only.",
-        "n_layers": 48,
-        "n_kv_heads": 8,
-        "head_dim": 128,
-        "max_ctx": 8192,
     },
 }
 
-DEFAULT_MODEL = "8B"
+DEFAULT_MODEL = "MiniCPM5"
 LD_LIBRARY_PATH = "/usr/local/cuda-13.2/targets/sbsa-linux/lib"
 
 
@@ -324,11 +289,11 @@ def show_models():
     free_mb = get_free_memory_mb()
     print(f"Free memory: {free_mb} MB")
     print()
-    print(f"{'Key':<8} {'Model':<25} {'Size':<8} {'Speed':<8} {'Coding':<8} {'IT':<8} {'Max Ctx':<10}")
-    print("-" * 80)
+    print(f"{'Key':<10} {'Model':<30} {'Size':<8} {'Speed':<10} {'Max Ctx':<10}")
+    print("-" * 72)
     for key, m in MODELS.items():
         ctx = calculate_max_context(m, free_mb)
-        print(f"{key:<8} {m['name']:<25} {m['size_gb']:.1f} GB  {m['speed_ts']:.1f} t/s  {m['score_coding']:<8} {m['score_it']:<8} {ctx}")
+        print(f"{key:<10} {m['name']:<30} {m['size_gb']:.1f} GB  {m['speed_ts']:.1f} t/s     {ctx}")
     print()
     print(f"Default: {DEFAULT_MODEL}")
 

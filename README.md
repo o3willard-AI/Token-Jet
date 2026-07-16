@@ -60,21 +60,39 @@ curl http://<jetson-ip>:1234/v1/chat/completions \
 ## Features
 
 - **Auto-context:** Calculates the largest context window that fits in available unified memory
-- **Model selection:** Ships with pre-configured profiles for Bonsai ternary models (4B, 8B, 27B) and Gemma-3-1B
 - **OpenAI-compatible:** Standard `/v1/chat/completions` and `/v1/models` endpoints
-- **Auto-start:** Systemd service for boot-time startup
-- **Evaluated:** All models benchmarked on coding (5-task) and IT troubleshooting (5-scenario) tasks
+- **Auto-start:** Systemd service for boot-time startup with watchdog recovery
 
-## Models
+## Recommended Models
 
-| Model | Coding | IT Support | Speed | Best For |
-|-------|:------:|:----------:|:-----:|----------|
-| **Ternary-Bonsai-8B** | 4/5 | 2/5 | 8.4 t/s | Best overall. Code generation + architecture |
-| Ternary-Bonsai-4B | 3/5 | 1/5 | 16.3 t/s | Interactive use, low latency |
-| Gemma-3-1B | 2/5 | 1/5 | 15.6 t/s | Fastest, but unreliable for complex tasks |
-| Bonsai-27B | 0/5* | N/A | 3.2 t/s | Experimental only — unstable |
+After evaluating ten models across coding tasks, IT troubleshooting scenarios, and real-world agent usage on the Jetson Orin Nano 8GB, we recommend these three. The assessments below reflect our observations as of July 2026 — they represent our best effort, not a definitive ranking.
 
-*\* 27B loads and benchmarks but crashes on real inference. See docs/bonsai-27b.md.*
+| Model | Size | Speed | Max Context | Best For |
+|-------|------|:-----:|:-----------:|----------|
+| **MiniCPM5-1B** | 1.1 GB | 31 t/s | 16K | Interactive use, low latency, generous context |
+| **Qwen3.5-4B-Coder** | 2.5 GB | 20 t/s | 8K | Solid all-rounder, good speed at moderate context |
+| **Ternary-Bonsai-8B** | 2.0 GB | 8 t/s | 16K | Complex code generation, highest accuracy |
+
+### MiniCPM5-1B (Q8_0)
+
+The speed champion — over 30 tokens per second with a generous 16K context window at just 1.1 GB. Claude-distilled, so it inherits strong instruction-following and reasoning patterns. Ideal for interactive agents where latency matters. Pairs well with the full 16K context for long conversations or document processing.
+
+### Qwen3.5-4B-Coder (Q4_0)
+
+The pragmatic middle choice. More than twice as fast as the Bonsai-8B with solid code generation ability. The tighter 8K context window is the trade-off — adequate for most coding tasks but limiting for very long files. A good choice when you want decent accuracy without waiting.
+
+### Ternary-Bonsai-8B (Q2_0)
+
+The accuracy leader. At 1.58-bit ternary quantization, this model consistently handles the most complex coding challenges that trip up the others. The cost is speed — at 8 tokens per second, it's the slowest of the three. Best for offline or batch code generation where quality matters more than responsiveness.
+
+### Trade-offs at a glance
+
+- **Speed:** MiniCPM5 (31 t/s) ≫ Qwen3.5 (20 t/s) ≫ Bonsai-8B (8 t/s)
+- **Context:** MiniCPM5 = Bonsai-8B (16K) > Qwen3.5 (8K)
+- **Code quality:** Bonsai-8B > Qwen3.5 ≈ MiniCPM5
+- **Disk footprint:** MiniCPM5 (1.1 GB) < Bonsai-8B (2.0 GB) < Qwen3.5 (2.5 GB)
+
+For most users, MiniCPM5-1B is the best starting point — fast, generous context, and competent across a range of tasks. Switch to Bonsai-8B when you need the extra accuracy for complex code generation.
 
 ## Requirements
 
@@ -85,12 +103,13 @@ curl http://<jetson-ip>:1234/v1/chat/completions \
 ## Commands
 
 ```bash
-jetson-infer start              # Start best model (8B) with auto context
-jetson-infer start --model 4B   # Start 4B (faster, lower quality)
-jetson-infer status             # Show running model, memory, health
-jetson-infer stop               # Stop the server
-jetson-infer models             # List models with scores + max context
-jetson-infer install            # Install systemd service (auto-start on boot)
+jetson-infer start                    # Start recommended model (MiniCPM5-1B)
+jetson-infer start --model 8B         # Start Bonsai-8B (highest accuracy)
+jetson-infer start --model qwen3.5    # Start Qwen3.5-4B-Coder
+jetson-infer status                   # Show running model, memory, health
+jetson-infer stop                     # Stop the server
+jetson-infer models                   # List available models with speeds + max context
+jetson-infer install                  # Install systemd service (auto-start on boot)
 ```
 
 ## How It Works
