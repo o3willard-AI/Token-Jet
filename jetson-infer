@@ -82,19 +82,33 @@ MODELS = {
         "head_dim": 256,
         "max_ctx": 8192,
     },
-    "27B": {
-        "name": "Bonsai-27B (UNSTABLE)",
-        "path": "/home/sblanken/models/Bonsai-27B-Q1_0.gguf",
+    "27B-Q2": {
+        "name": "Ternary-Bonsai-27B Q2_0",
+        "path": "/home/sblanken/models/Ternary-Bonsai-27B-Q2_0.gguf",
         "server_bin": "/home/sblanken/llama.cpp-prism/build/bin/llama-server",
-        "size_gb": 3.53,
-        "score_coding": "0/5*",
-        "score_it": "N/A",
-        "speed_ts": 3.2,
-        "description": "DEAD END. Qwen3.5 hybrid (SSM+attn). Loads & benchmarks but crashes on real inference. Chat API broken (thinking mode). Completion endpoint unstable. 1-bit collapse. FOR EXPERIMENTS ONLY.",
+        "size_gb": 6.69,
+        "score_coding": "TBD",
+        "score_it": "TBD",
+        "speed_ts": 0,  # TBD — benchmark first
+        "description": "NEW. 27B at 2-bit ternary (same format as 8B). Should be faster + smarter than Q1_0. Very tight on 7.3GiB RAM — may need minimal context.",
         "n_layers": 48,
         "n_kv_heads": 8,
         "head_dim": 128,
-        "max_ctx": 4096,  # Keep small — server crashes at longer ctx
+        "max_ctx": 4096,  # Conservative — memory is tight
+    },
+    "27B-dspark": {
+        "name": "Bonsai-27B dspark (DRAFTER)",
+        "path": "/home/sblanken/models/Bonsai-27B-dspark-Q4_1.gguf",
+        "server_bin": "/home/sblanken/llama.cpp-prism/build/bin/llama-server",
+        "size_gb": 1.72,
+        "score_coding": "N/A",
+        "score_it": "N/A",
+        "speed_ts": 33.6,
+        "description": "FAST (33.6 t/s) but speculative drafter only. Tokenizer broken for real inference. For benchmarking experiments only.",
+        "n_layers": 48,
+        "n_kv_heads": 8,
+        "head_dim": 128,
+        "max_ctx": 8192,
     },
 }
 
