@@ -29,8 +29,13 @@ HOST = "0.0.0.0"
 PORT = 1234
 SAFETY_MARGIN_MB = 512  # Leave 512 MB for OS
 MIN_FREE_MB = 256       # Minimum free memory after loading
+HEALTH_CHECK_INTERVAL = 10  # Seconds between health checks
+MEMORY_CHECK_INTERVAL = 30  # Seconds between memory checks
+MEMORY_RESTART_THRESHOLD_MB = 200  # Restart if free memory drops below this
+MAX_RESTARTS = 10         # Max consecutive restarts before giving up
 LOG_FILE = "/tmp/jetson-infer.log"
 PID_FILE = "/tmp/jetson-infer.pid"
+WATCHDOG_LOG = "/tmp/jetson-watchdog.log"
 
 # Available models — ordered by preference (best first)
 MODELS = {
@@ -353,6 +358,73 @@ def install_service():
         pass
 
 
+def watchdog_loop(model_key, port, max_restarts=MAX_RESTARTS):
+    """Monitor server health and memory. Restart on failure."""
+    import datetime
+    
+    with open(WATCHDOG_LOG, "a") as wlog:
+        def wprint(msg):
+            ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            line = f"[{ts}] {msg}"
+            print(line, flush=True)
+            wlog.write(line + "\n")
+            wlog.flush()
+    
+    wprint("Watchdog started")
+    restart_count = 0
+    last_memory_check = 0
+    
+    while restart_count < max_restarts:
+        time.sleep(HEALTH_CHECK_INTERVAL)
+        
+        # Health check
+        healthy = is_running(port)
+        
+        # Memory check (less frequent)
+        now = time.time()
+        if now - last_memory_check > MEMORY_CHECK_INTERVAL:
+            last_memory_check = now
+            free_mb = get_free_memory_mb()
+            if free_mb < MEMORY_RESTART_THRESHOLD_MB:
+                wprint(f"MEMORY LOW: {free_mb} MB free (threshold: {MEMORY_RESTART_THRESHOLD_MB} MB). Restarting...")
+                healthy = False
+        
+        if not healthy:
+            restart_count += 1
+            wprint(f"SERVER UNHEALTHY (restart {restart_count}/{max_restarts})")
+            
+            # Kill existing
+            pid = get_pid()
+            if pid:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                    time.sleep(5)
+                    os.kill(pid, signal.SIGKILL)
+                except:
+                    pass
+            subprocess.run(["pkill", "-9", "-f", "llama-server"], stderr=subprocess.DEVNULL)
+            time.sleep(5)
+            
+            # Wait for memory to settle
+            for _ in range(30):
+                if get_free_memory_mb() > MEMORY_RESTART_THRESHOLD_MB * 2:
+                    break
+                time.sleep(2)
+            
+            # Restart
+            wprint("Restarting server...")
+            try:
+                start_server(model_key, port)
+                restart_count = 0  # Reset on successful start
+                wprint("Server recovered")
+            except SystemExit:
+                wprint("Start failed. Will retry...")
+                time.sleep(30)
+    
+    wprint(f"MAX RESTARTS ({max_restarts}) REACHED. Watchdog giving up.")
+    sys.exit(1)
+
+
 # ── CLI ─────────────────────────────────────────────────────
 
 def main():
@@ -376,6 +448,8 @@ Examples:
                               help=f"Model to load (default: {DEFAULT_MODEL})")
     start_parser.add_argument("--port", type=int, default=PORT,
                               help=f"Port to listen on (default: {PORT})")
+    start_parser.add_argument("--watchdog", action="store_true",
+                              help="Run with health/memory monitoring and auto-restart")
     
     sub.add_parser("stop", help="Stop inference server")
     sub.add_parser("status", help="Show server status")
@@ -385,7 +459,11 @@ Examples:
     args = parser.parse_args()
     
     if args.command == "start":
-        start_server(args.model, args.port)
+        if args.watchdog:
+            start_server(args.model, args.port)
+            watchdog_loop(args.model, args.port)
+        else:
+            start_server(args.model, args.port)
     elif args.command == "stop":
         stop_server()
     elif args.command == "status":

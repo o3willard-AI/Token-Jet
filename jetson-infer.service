@@ -7,7 +7,7 @@ Type=simple
 User=sblanken
 WorkingDirectory=/home/sblanken
 Environment=LD_LIBRARY_PATH=/usr/local/cuda-13.2/targets/sbsa-linux/lib
-ExecStart=/home/sblanken/bin/jetson-infer start --model 8B
+ExecStart=/home/sblanken/bin/jetson-infer start --model 8B --watchdog
 ExecStop=/home/sblanken/bin/jetson-infer stop
 Restart=on-failure
 RestartSec=10
