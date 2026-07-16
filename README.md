@@ -114,7 +114,8 @@ Token-Jet/
 ├── docs/
 │   ├── model-results.md      # Full eval results (coding + IT troubleshooting)
 │   ├── bonsai-27b.md         # 27B dead-end investigation
-│   └── hardware-setup.md     # Jetson Orin setup from scratch
+│   ├── hardware-setup.md     # Jetson Orin setup from scratch
+│   └── resilience.md         # Watchdog, auto-recovery, memory monitoring
 ├── eval/
 │   ├── coding-eval.py        # 5-task coding benchmark
 │   └── it-eval.py            # 5-scenario IT troubleshooting test
