@@ -1,4 +1,4 @@
-# Token-Jet
+# <img src="images/token-jet-logo-v1.jpg" alt="Token-Jet" width="48" align="left"> Token-Jet
 
 **Turn your NVIDIA Jetson into a local inference server in one command.**
 
