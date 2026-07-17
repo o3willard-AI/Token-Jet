@@ -15,7 +15,7 @@ class ChatInput(Static):
     ]
 
     def __init__(self):
-        super().__init__("")
+        super().__init__("", id="chat-input-area")
         self._buffer = ""
 
     def on_mount(self) -> None:

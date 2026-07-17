@@ -67,4 +67,4 @@ class MainScreen(Screen):
         self.notify("Remove model — coming soon", timeout=3)
 
     def action_focus_chat(self) -> None:
-        self.query_one(ChatPanel).query_one(ChatInput).focus()
+        self.query_one("#chat-input-area").focus()
