@@ -1,4 +1,4 @@
-"""Jetson status panel — unified memory, CPU, temperature."""
+"""Jetson status panel — unified memory, CPU, temperature, GPU utilization."""
 
 from textual.widgets import Static
 from textual.containers import Container
@@ -16,7 +16,7 @@ class JetsonPanel(Container):
 
     def refresh_stats(self) -> None:
         try:
-            import re
+            import re, subprocess
 
             with open("/proc/meminfo") as f:
                 mem = f.read()
@@ -39,11 +39,24 @@ class JetsonPanel(Container):
             except:
                 cpu_pct = 0
             
+            # GPU utilization from tegrastats
+            gpu_pct = 0
+            try:
+                result = subprocess.run(
+                    ["tegrastats", "--interval", "100", "--count", "1"],
+                    capture_output=True, text=True, timeout=2
+                )
+                m = re.search(r"GR3D_FREQ (\d+)%", result.stdout)
+                if m:
+                    gpu_pct = int(m.group(1))
+            except:
+                pass
+            
             line = (
                 f"  RAM: {used}M / {total}M  |  "
                 f"CPU: {cpu_pct}%  |  "
-                f"Temp: {temp:.0f}°C  |  "
-                f"GPU: CUDA"
+                f"GPU: {gpu_pct}%  |  "
+                f"Temp: {temp:.0f}°C"
             )
             self.query_one("#jetson-stats").update(line)
         except Exception as e:

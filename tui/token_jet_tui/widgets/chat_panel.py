@@ -60,5 +60,9 @@ ChatPanel {
 }
 #chat-input {
     height: 3;
+    border: none;
+}
+#chat-input:focus {
+    border: none;
 }
 """
