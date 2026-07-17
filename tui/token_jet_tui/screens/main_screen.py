@@ -62,7 +62,7 @@ class MainScreen(Screen):
         pass
 
     def action_switch_model(self) -> None:
-        self.push_screen(ModelSwitchScreen(), callback=self._on_model_selected)
+        self.app.push_screen(ModelSwitchScreen(), callback=self._on_model_selected)
 
     def _on_model_selected(self, model_name: str | None) -> None:
         if not model_name:
