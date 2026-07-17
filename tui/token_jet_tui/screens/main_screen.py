@@ -1,8 +1,8 @@
-"""Main dashboard screen for Token-Jet TUI."""
+"""Main dashboard screen for Token-Jet TUI — vertical stack layout."""
 
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Vertical
 from textual.screen import Screen
-from textual.widgets import Footer, Static
+from textual.widgets import Footer
 
 from token_jet_tui.widgets.ascii_logo import AsciiLogo
 from token_jet_tui.widgets.jetson_panel import JetsonPanel
@@ -11,7 +11,7 @@ from token_jet_tui.widgets.chat_panel import ChatPanel
 
 
 class MainScreen(Screen):
-    """Main dashboard: Jetson status, models, and quick chat."""
+    """Main dashboard: Jetson status, models, and quick chat — stacked vertically."""
 
     DEFAULT_CSS = """
     MainScreen {
@@ -21,16 +21,11 @@ class MainScreen(Screen):
         height: auto;
         content-align: center middle;
     }
-    #content-row {
-        width: 100%;
-        height: 1fr;
-    }
-    #left-column {
-        width: 45%;
-        height: 100%;
-        layout: vertical;
-    }
     #jetson-panel {
+        width: 100%;
+        height: auto;
+    }
+    #models-panel {
         width: 100%;
         height: auto;
     }
@@ -38,24 +33,11 @@ class MainScreen(Screen):
         width: 100%;
         height: 1fr;
     }
-    #models-panel {
-        width: 55%;
-        height: 100%;
-    }
     """
 
     def compose(self):
-        yield Vertical(
-            Container(AsciiLogo(), id="logo-container"),
-            Horizontal(
-                Vertical(
-                    JetsonPanel(id="jetson-panel"),
-                    ChatPanel(id="chat-panel"),
-                    id="left-column"
-                ),
-                ModelsPanel(id="models-panel"),
-                id="content-row"
-            ),
-            id="main-content"
-        )
+        yield Container(AsciiLogo(), id="logo-container")
+        yield JetsonPanel(id="jetson-panel")
+        yield ModelsPanel(id="models-panel")
+        yield ChatPanel(id="chat-panel")
         yield Footer()
