@@ -43,7 +43,7 @@ class MainScreen(Screen):
     }
     #chat-panel {
         width: 100%;
-        height: 14;
+        height: 12;
     }
     """
 
