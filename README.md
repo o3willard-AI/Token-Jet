@@ -112,6 +112,18 @@ jetson-infer models                   # List available models with speeds + max 
 jetson-infer install                  # Install systemd service (auto-start on boot)
 ```
 
+### Terminal Dashboard (TUI)
+
+Token-Jet includes a terminal dashboard for monitoring and testing:
+
+```bash
+# On the Jetson
+cd Token-Jet/tui
+python3 -m venv .venv && source .venv/bin/activate
+pip install .            # installs textual + token-jet-tui
+token-jet-tui            # launch the dashboard
+```
+
 ## How It Works
 
 On startup, `jetson-infer`:
@@ -135,6 +147,8 @@ Token-Jet/
 │   ├── bonsai-27b.md         # 27B dead-end investigation
 │   ├── hardware-setup.md     # Jetson Orin setup from scratch
 │   └── resilience.md         # Watchdog, auto-recovery, memory monitoring
+├── tui/                      # Terminal dashboard (Textual)
+│   └── token_jet_tui/        #   pip install tui/ && token-jet-tui
 ├── eval/
 │   ├── coding-eval.py        # 5-task coding benchmark
 │   └── it-eval.py            # 5-scenario IT troubleshooting test
