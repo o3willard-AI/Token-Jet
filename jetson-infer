@@ -173,8 +173,6 @@ def start_server(model_key, port=PORT):
     print(f"Model:       {model['name']}")
     print(f"Size:        {model['size_gb']:.2f} GB")
     print(f"Speed:       {model['speed_ts']} t/s")
-    print(f"Coding:      {model['score_coding']}")
-    print(f"IT Support:  {model['score_it']}")
     print(f"Free RAM:    {free_mb} MB")
     print(f"Context:     {ctx_size} tokens")
     print(f"KV budget:   ~{ctx_size * model['n_layers'] * model['n_kv_heads'] * model['head_dim'] * 2 // (1024*1024)} MB")
