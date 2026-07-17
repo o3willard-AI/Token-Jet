@@ -1,0 +1,15 @@
+[project]
+name = "token-jet-tui"
+version = "0.1.0"
+description = "Terminal UI for Token-Jet — manage your Jetson inference server"
+requires-python = ">=3.9"
+dependencies = [
+    "textual>=0.50.0",
+]
+
+[project.scripts]
+token-jet-tui = "token_jet_tui.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
