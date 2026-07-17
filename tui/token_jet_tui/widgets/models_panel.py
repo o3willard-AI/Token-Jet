@@ -1,18 +1,17 @@
 """Models panel — active model display and actions."""
 
-from textual.widgets import Static, Button
-from textual.containers import Horizontal
-from textual.app import ComposeResult
+from textual.widgets import Static
+from textual.containers import Container
 import os
 
 
-class ModelsPanel(Horizontal):
-    """Model management: view active model, switch, download, remove."""
+class ModelsPanel(Container):
+    """Model info: active model and available actions via hotkeys."""
 
-    def compose(self) -> ComposeResult:
+    def compose(self):
         yield Static("ACTIVE MODEL", classes="panel-title")
         yield Static("Loading...", id="active-model-info")
-        yield Static("Switch  Download  Remove", id="model-actions")
+        yield Static("  Switch: Ctrl+S   Download: Ctrl+D   Remove: Ctrl+X", id="model-actions")
 
     def on_mount(self) -> None:
         self.set_interval(5, self.refresh_model_info)
@@ -42,7 +41,6 @@ ModelsPanel {
     border: solid $primary;
     padding: 1;
     height: auto;
-    layout: vertical;
 }
 .panel-title {
     text-style: bold;

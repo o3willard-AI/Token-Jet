@@ -1,15 +1,15 @@
-"""Quick chat panel — send a message to the loaded model for testing."""
+"""Quick chat panel — send a message to test the loaded model."""
 
 from textual.widgets import Static, Input
 from textual.containers import Container
 
 
 class ChatPanel(Container):
-    """Quick chat for testing the loaded model."""
+    """Quick chat for testing the loaded model. No auto-focus."""
 
     def compose(self):
         yield Static("QUICK CHAT", classes="panel-title")
-        yield Static("Type a message and press Enter to test the active model.", id="chat-response")
+        yield Static("Press Ctrl+C to focus, type a message, press Enter to send.", id="chat-response")
         yield Input(placeholder="Type a message...", id="chat-input")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
