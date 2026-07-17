@@ -7,7 +7,7 @@ from textual.widgets import Footer
 from token_jet_tui.widgets.ascii_logo import AsciiLogo
 from token_jet_tui.widgets.jetson_panel import JetsonPanel
 from token_jet_tui.widgets.models_panel import ModelsPanel
-from token_jet_tui.widgets.chat_panel import ChatPanel
+from token_jet_tui.widgets.chat_panel import ChatPanel, ChatInput
 
 
 class MainScreen(Screen):
@@ -63,4 +63,4 @@ class MainScreen(Screen):
         self.notify("Remove model — coming soon", timeout=3)
 
     def action_focus_chat(self) -> None:
-        self.query_one(ChatPanel).query_one("#chat-input").focus()
+        self.query_one(ChatPanel).query_one(ChatInput).focus()

@@ -1,7 +1,37 @@
 """Quick chat panel — send a message to test the loaded model."""
 
-from textual.widgets import Static, Input
+from textual.widgets import Static
 from textual.containers import Container
+from textual import events
+
+
+class ChatInput(Static):
+    """A plain text area for typing messages — no Input widget styling."""
+
+    def __init__(self):
+        super().__init__("", id="chat-input-area")
+        self._buffer = ""
+
+    def on_mount(self) -> None:
+        self.update("")
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "enter":
+            self.app.query_one(ChatPanel).send_message()
+        elif event.key == "backspace":
+            self._buffer = self._buffer[:-1]
+            self.update(f"  {self._buffer}")
+        elif len(event.key) == 1 and event.is_printable:
+            self._buffer += event.key
+            self.update(f"  {self._buffer}")
+
+    @property
+    def value(self) -> str:
+        return self._buffer
+
+    def clear(self) -> None:
+        self._buffer = ""
+        self.update("")
 
 
 class ChatPanel(Container):
@@ -10,17 +40,17 @@ class ChatPanel(Container):
     def compose(self):
         yield Static("QUICK CHAT", classes="panel-title")
         yield Static("", id="chat-response")
-        yield Input(placeholder="Type a message, Enter to send...", id="chat-input")
+        yield Static("  Type a message, Enter to send...", id="chat-input-hint")
+        yield ChatInput()
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        self.send_message()
+    def on_mount(self) -> None:
+        self._chat_input = self.query_one(ChatInput)
 
     def send_message(self) -> None:
-        inp = self.query_one("#chat-input", Input)
-        msg = inp.value.strip()
+        msg = self._chat_input.value.strip()
         if not msg:
             return
-        inp.value = ""
+        self._chat_input.clear()
         self.query_one("#chat-response", Static).update("Thinking...")
         
         try:
@@ -57,28 +87,12 @@ ChatPanel {
     height: 1fr;
     margin-bottom: 1;
     overflow-y: auto;
-    border: none;
 }
-#chat-input {
+#chat-input-hint {
+    color: $text-muted;
+    height: 1;
+}
+#chat-input-area {
     height: 3;
-    border: none;
-}
-ChatPanel Static {
-    border: none;
-}
-ChatPanel Input {
-    border: none;
-}
-ChatPanel Static:focus {
-    border: none;
-}
-ChatPanel Input:focus {
-    border: none;
-}
-ChatPanel Input:focus-within {
-    border: none;
-}
-ChatPanel :focus {
-    border: none;
 }
 """
