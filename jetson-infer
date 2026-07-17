@@ -191,6 +191,7 @@ def start_server(model_key, port=PORT):
         "--port", str(port),
         "--n-gpu-layers", "99",
         "--ctx-size", str(ctx_size),
+        "--metrics",
     ]
     
     print(f"Starting: {' '.join(cmd)}")

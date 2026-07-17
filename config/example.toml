@@ -1,0 +1,22 @@
+# Token-Jet configuration
+# Copy to ~/.config/token-jet/config.toml on your Jetson and edit as needed.
+# The install script writes this automatically with sensible defaults.
+
+# Directory containing your .gguf model files
+model_dir = "/home/sblanken/models"
+
+# Directory containing llama-server binary (standard llama.cpp build)
+llama_cpp_bin = "/home/sblanken/llama.cpp/build/bin"
+
+# Inference server address (127.0.0.1 when TUI runs on Jetson)
+server_host = "127.0.0.1"
+server_port = 1234
+
+# CUDA library path required for llama-server on JetPack
+ld_library_path = "/usr/local/cuda-13.2/targets/sbsa-linux/lib"
+
+# Path to the jetson-infer management script
+jetson_infer_bin = "/home/sblanken/bin/jetson-infer"
+
+# Timeout in seconds for large HF downloads
+hf_download_timeout = 300
