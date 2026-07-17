@@ -23,8 +23,9 @@ class ChatInput(Static):
 
     def on_key(self, event: events.Key) -> None:
         if event.key == "enter":
-            panel = self.app.query_one(ChatPanel)
-            panel.send_message()
+            panel = self.parent
+            if hasattr(panel, 'send_message'):
+                panel.send_message()
         elif event.key == "backspace":
             self._buffer = self._buffer[:-1]
         elif event.key == "escape":
