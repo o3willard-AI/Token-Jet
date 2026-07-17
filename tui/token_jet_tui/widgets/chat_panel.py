@@ -103,8 +103,8 @@ class ChatPanel(Container):
         except Exception as e:
             return f"Error: {e}"
 
-    def on_worker_state_changed(self, event: work.WorkerStateChanged) -> None:
-        if event.state == work.WorkerState.SUCCESS and event.worker.name == "_do_request":
+    def on_worker_state_changed(self, event) -> None:
+        if event.state == WorkerState.SUCCESS and event.worker.name == "_do_request":
             self._spinning = False
             if hasattr(self, '_spin_timer'):
                 self._spin_timer.stop()
