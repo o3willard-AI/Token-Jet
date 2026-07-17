@@ -1,7 +1,7 @@
 """Quick chat panel — send a message to the loaded model for testing."""
 
-from textual.widgets import Static, Input, Button
-from textual.containers import Container, Horizontal, Vertical
+from textual.widgets import Static, Input
+from textual.containers import Container
 
 
 class ChatPanel(Container):
@@ -9,22 +9,13 @@ class ChatPanel(Container):
 
     def compose(self):
         yield Static("QUICK CHAT", classes="panel-title")
-        yield Static("Send a message to test the active model.", id="chat-response")
-        yield Horizontal(
-            Input(placeholder="Type a message...", id="chat-input"),
-            Button("Send", id="btn-send", variant="primary"),
-            id="chat-row"
-        )
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-send":
-            self.send_message()
+        yield Static("Type a message and press Enter to test the active model.", id="chat-response")
+        yield Input(placeholder="Type a message...", id="chat-input")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         self.send_message()
 
     def send_message(self) -> None:
-        """Send the input text to the inference server and display response."""
         inp = self.query_one("#chat-input", Input)
         msg = inp.value.strip()
         if not msg:
@@ -36,7 +27,7 @@ class ChatPanel(Container):
             import urllib.request, json
             body = {
                 "messages": [{"role": "user", "content": msg}],
-                "max_tokens": 200,
+                "max_tokens": 300,
                 "temperature": 0,
             }
             resp = json.loads(urllib.request.urlopen(
@@ -44,7 +35,7 @@ class ChatPanel(Container):
                     "http://127.0.0.1:1234/v1/chat/completions",
                     data=json.dumps(body).encode(),
                     headers={"Content-Type": "application/json"}),
-                timeout=60).read())
+                timeout=120).read())
             content = resp["choices"][0]["message"]["content"]
             self.query_one("#chat-response", Static).update(content)
         except Exception as e:
@@ -55,7 +46,7 @@ CSS = """
 ChatPanel {
     border: solid $success;
     padding: 1;
-    height: 1fr;
+    layout: vertical;
 }
 .panel-title {
     text-style: bold;
@@ -65,11 +56,9 @@ ChatPanel {
 #chat-response {
     height: 1fr;
     margin-bottom: 1;
-}
-#chat-row {
-    height: auto;
+    overflow-y: auto;
 }
 #chat-input {
-    width: 1fr;
+    height: 3;
 }
 """

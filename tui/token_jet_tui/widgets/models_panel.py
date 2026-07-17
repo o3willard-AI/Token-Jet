@@ -1,32 +1,23 @@
 """Models panel — active model display and actions."""
 
 from textual.widgets import Static, Button
-from textual.containers import Container, Horizontal
+from textual.containers import Horizontal
+from textual.app import ComposeResult
 import os
 
 
-class ModelsPanel(Container):
-    """Model management: view active model, switch, download."""
+class ModelsPanel(Horizontal):
+    """Model management: view active model, switch, download, remove."""
 
-    def compose(self):
+    def compose(self) -> ComposeResult:
         yield Static("ACTIVE MODEL", classes="panel-title")
         yield Static("Loading...", id="active-model-info")
-        yield Horizontal(
-            Button("Switch", id="btn-switch", variant="primary"),
-            Button("Download", id="btn-download", variant="default"),
-            Button("Refresh", id="btn-refresh", variant="default"),
-            id="model-buttons"
-        )
+        yield Static("Switch  Download  Remove", id="model-actions")
 
     def on_mount(self) -> None:
-        self.refresh_model_info()
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-refresh":
-            self.refresh_model_info()
+        self.set_interval(5, self.refresh_model_info)
 
     def refresh_model_info(self) -> None:
-        """Query the inference server for active model info."""
         try:
             import urllib.request, json
             resp = json.loads(urllib.request.urlopen(
@@ -34,7 +25,7 @@ class ModelsPanel(Container):
             if resp.get("data"):
                 model = resp["data"][0]
                 meta = model.get("meta", {})
-                name = os.path.basename(model["id"].replace(".gguf", ""))
+                name = os.path.basename(model["id"]).replace(".gguf", "")
                 size_gb = meta.get("size", 0) / (1024**3)
                 params_b = meta.get("n_params", 0) / 1e9
                 ctx = meta.get("n_ctx", "?")
@@ -51,17 +42,15 @@ ModelsPanel {
     border: solid $primary;
     padding: 1;
     height: auto;
+    layout: vertical;
 }
 .panel-title {
     text-style: bold;
     color: $text-muted;
     padding-bottom: 1;
 }
-#model-buttons {
+#model-actions {
     margin-top: 1;
-    height: auto;
-}
-#btn-switch, #btn-download, #btn-refresh {
-    margin-right: 1;
+    color: $text-muted;
 }
 """
