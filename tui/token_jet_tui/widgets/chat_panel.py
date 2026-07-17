@@ -31,8 +31,10 @@ class ChatInput(Static):
         elif event.key == "escape":
             self.blur()
             return
-        elif len(event.key) == 1 and event.is_printable:
-            self._buffer += event.key
+        elif event.key == "space":
+            self._buffer += " "
+        elif event.is_printable and event.character:
+            self._buffer += event.character
         else:
             return
         self.update(f"  {self._buffer}")
