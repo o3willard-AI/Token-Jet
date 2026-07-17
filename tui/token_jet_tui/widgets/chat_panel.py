@@ -7,6 +7,7 @@ from textual.widgets import Static
 from textual.containers import Container
 from textual import events
 from textual import work
+from textual.worker import WorkerState
 
 
 class ChatInput(Static):
