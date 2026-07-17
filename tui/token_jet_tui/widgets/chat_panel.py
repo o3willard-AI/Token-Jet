@@ -57,12 +57,28 @@ ChatPanel {
     height: 1fr;
     margin-bottom: 1;
     overflow-y: auto;
+    border: none;
 }
 #chat-input {
     height: 3;
     border: none;
 }
-#chat-input:focus {
+ChatPanel Static {
+    border: none;
+}
+ChatPanel Input {
+    border: none;
+}
+ChatPanel Static:focus {
+    border: none;
+}
+ChatPanel Input:focus {
+    border: none;
+}
+ChatPanel Input:focus-within {
+    border: none;
+}
+ChatPanel :focus {
     border: none;
 }
 """
