@@ -1,15 +1,21 @@
-"""Quick chat panel — send a message to test the loaded model."""
+"""Quick chat panel — type messages to test the loaded model."""
 
 from textual.widgets import Static
 from textual.containers import Container
 from textual import events
+from textual.message import Message
 
 
 class ChatInput(Static):
-    """A plain text area for typing messages — no Input widget styling."""
+    """A focusable text input area — plain Static, no built-in styling."""
+
+    can_focus = True
+    BINDINGS = [
+        ("escape", "blur", "Done"),
+    ]
 
     def __init__(self):
-        super().__init__("", id="chat-input-area")
+        super().__init__("")
         self._buffer = ""
 
     def on_mount(self) -> None:
@@ -17,13 +23,21 @@ class ChatInput(Static):
 
     def on_key(self, event: events.Key) -> None:
         if event.key == "enter":
-            self.app.query_one(ChatPanel).send_message()
+            panel = self.app.query_one(ChatPanel)
+            panel.send_message()
         elif event.key == "backspace":
             self._buffer = self._buffer[:-1]
-            self.update(f"  {self._buffer}")
+        elif event.key == "escape":
+            self.blur()
+            return
         elif len(event.key) == 1 and event.is_printable:
             self._buffer += event.key
-            self.update(f"  {self._buffer}")
+        else:
+            return
+        self.update(f"  {self._buffer}")
+
+    def action_blur(self) -> None:
+        self.screen.set_focus(None)
 
     @property
     def value(self) -> str:
@@ -35,12 +49,12 @@ class ChatInput(Static):
 
 
 class ChatPanel(Container):
-    """Quick chat for testing. Ctrl+C to focus, Enter to send."""
+    """Quick chat for testing the loaded model. Ctrl+C to focus, type, Enter to send."""
 
     def compose(self):
         yield Static("QUICK CHAT", classes="panel-title")
         yield Static("", id="chat-response")
-        yield Static("  Type a message, Enter to send...", id="chat-input-hint")
+        yield Static("  Ctrl+C to type, Enter to send", id="chat-input-hint")
         yield ChatInput()
 
     def on_mount(self) -> None:
@@ -51,7 +65,8 @@ class ChatPanel(Container):
         if not msg:
             return
         self._chat_input.clear()
-        self.query_one("#chat-response", Static).update("Thinking...")
+        resp_area = self.query_one("#chat-response", Static)
+        resp_area.update("Thinking...")
         
         try:
             import urllib.request, json
@@ -67,9 +82,9 @@ class ChatPanel(Container):
                     headers={"Content-Type": "application/json"}),
                 timeout=120).read())
             content = resp["choices"][0]["message"]["content"]
-            self.query_one("#chat-response", Static).update(content)
+            resp_area.update(content)
         except Exception as e:
-            self.query_one("#chat-response", Static).update(f"Error: {e}")
+            resp_area.update(f"Error: {e}")
 
 
 CSS = """
@@ -91,8 +106,5 @@ ChatPanel {
 #chat-input-hint {
     color: $text-muted;
     height: 1;
-}
-#chat-input-area {
-    height: 3;
 }
 """

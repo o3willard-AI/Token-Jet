@@ -19,6 +19,7 @@ class MainScreen(Screen):
         ("ctrl+d", "download", "Download"),
         ("ctrl+x", "remove_model", "Remove Model"),
         ("ctrl+c", "focus_chat", "Focus Chat"),
+        ("ctrl+p", "noop", ""),
     ]
 
     DEFAULT_CSS = """
@@ -52,6 +53,9 @@ class MainScreen(Screen):
         yield ModelsPanel(id="models-panel")
         yield ChatPanel(id="chat-panel")
         yield Footer()
+
+    def action_noop(self) -> None:
+        pass
 
     def action_switch_model(self) -> None:
         self.notify("Switch model — coming soon", timeout=3)
