@@ -5,12 +5,12 @@ from textual.containers import Container
 
 
 class ChatPanel(Container):
-    """Quick chat for testing the loaded model. No auto-focus."""
+    """Quick chat for testing. Ctrl+C to focus, Enter to send."""
 
     def compose(self):
         yield Static("QUICK CHAT", classes="panel-title")
-        yield Static("Press Ctrl+C to focus, type a message, press Enter to send.", id="chat-response")
-        yield Input(placeholder="Type a message...", id="chat-input")
+        yield Static("", id="chat-response")
+        yield Input(placeholder="Type a message, Enter to send...", id="chat-input")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         self.send_message()

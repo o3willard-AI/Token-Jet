@@ -1,4 +1,4 @@
-"""Models panel — active model display and actions."""
+"""Models panel — active model display."""
 
 from textual.widgets import Static
 from textual.containers import Container
@@ -6,12 +6,11 @@ import os
 
 
 class ModelsPanel(Container):
-    """Model info: active model and available actions via hotkeys."""
+    """Shows the currently loaded model."""
 
     def compose(self):
         yield Static("ACTIVE MODEL", classes="panel-title")
         yield Static("Loading...", id="active-model-info")
-        yield Static("  Switch: Ctrl+S   Download: Ctrl+D   Remove: Ctrl+X", id="model-actions")
 
     def on_mount(self) -> None:
         self.set_interval(5, self.refresh_model_info)
@@ -46,9 +45,5 @@ ModelsPanel {
     text-style: bold;
     color: $text-muted;
     padding-bottom: 1;
-}
-#model-actions {
-    margin-top: 1;
-    color: $text-muted;
 }
 """

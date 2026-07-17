@@ -1,8 +1,8 @@
-"""Main dashboard screen for Token-Jet TUI — vertical stack layout."""
+"""Main dashboard screen for Token-Jet TUI — clean vertical stack."""
 
 from textual.containers import Container
 from textual.screen import Screen
-from textual.widgets import Footer, Static
+from textual.widgets import Footer
 
 from token_jet_tui.widgets.ascii_logo import AsciiLogo
 from token_jet_tui.widgets.jetson_panel import JetsonPanel
@@ -16,7 +16,7 @@ class MainScreen(Screen):
     BINDINGS = [
         ("ctrl+q", "quit", "Quit"),
         ("ctrl+s", "switch_model", "Switch Model"),
-        ("ctrl+d", "download", "Download Models"),
+        ("ctrl+d", "download", "Download"),
         ("ctrl+x", "remove_model", "Remove Model"),
         ("ctrl+c", "focus_chat", "Focus Chat"),
     ]
@@ -44,12 +44,6 @@ class MainScreen(Screen):
         width: 100%;
         height: 14;
     }
-    #hotkey-bar {
-        width: 100%;
-        height: 1;
-        color: $text-muted;
-        content-align: center middle;
-    }
     """
 
     def compose(self):
@@ -57,7 +51,6 @@ class MainScreen(Screen):
         yield JetsonPanel(id="jetson-panel")
         yield ModelsPanel(id="models-panel")
         yield ChatPanel(id="chat-panel")
-        yield Static(" Ctrl+Q:quit  Ctrl+S:switch model  Ctrl+D:download  Ctrl+X:remove  Ctrl+C:chat input", id="hotkey-bar")
         yield Footer()
 
     def action_switch_model(self) -> None:
