@@ -259,10 +259,11 @@ echo "Models directory: ~/models/"
 # ── jetson-infer ──────────────────────────────────────────────────────────────
 echo "Installing jetson-infer..."
 mkdir -p ~/bin
-cp "${REPO_ROOT}/jetson-infer"         ~/bin/jetson-infer
+# Use a symlink so `git pull` in ~/Token-Jet picks up updates automatically.
+ln -sf "${REPO_ROOT}/jetson-infer" ~/bin/jetson-infer
 cp "${REPO_ROOT}/jetson-infer.service" ~/bin/jetson-infer.service
-chmod +x ~/bin/jetson-infer
-echo "  ~/bin/jetson-infer: OK"
+chmod +x "${REPO_ROOT}/jetson-infer"
+echo "  ~/bin/jetson-infer: OK (symlink → ${REPO_ROOT}/jetson-infer)"
 
 if ! grep -q '"$HOME/bin"\|$HOME/bin' ~/.bashrc 2>/dev/null; then
     echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
