@@ -103,28 +103,47 @@ if [[ "$PY_MAJOR" -lt 3 ]] || { [[ "$PY_MAJOR" -eq 3 ]] && [[ "$PY_MINOR" -lt 9 
 fi
 echo "  Python ${PY_MAJOR}.${PY_MINOR}: OK"
 
-# Build tools
+# Build tools + python3-venv (Ubuntu 22.04 strips ensurepip from system Python)
 MISSING_PKGS=()
-for pkg_cmd in cmake gcc make; do
-    command -v "$pkg_cmd" &>/dev/null || MISSING_PKGS+=("$pkg_cmd")
-done
+command -v cmake &>/dev/null || MISSING_PKGS+=("cmake")
+command -v gcc   &>/dev/null || MISSING_PKGS+=("build-essential")
+python3 -m venv --help &>/dev/null || MISSING_PKGS+=("python3-venv")
 if [[ ${#MISSING_PKGS[@]} -gt 0 ]]; then
-    echo "  Installing build tools (cmake, build-essential)..."
+    echo "  Installing build tools: ${MISSING_PKGS[*]}..."
     sudo apt-get update -qq
-    sudo apt-get install -y -qq cmake build-essential
+    sudo apt-get install -y -qq cmake build-essential python3-venv
 fi
 echo "  cmake $(cmake --version | head -1 | awk '{print $3}'): OK"
+echo "  python3-venv: OK"
 
-# CUDA
-if command -v nvcc &>/dev/null; then
-    CUDA_VER=$(nvcc --version | grep -oP 'release \K[0-9]+\.[0-9]+')
-    echo "  CUDA ${CUDA_VER}: OK"
+# CUDA — JetPack puts nvcc at /usr/local/cuda/bin which is NOT on the default PATH.
+# Check the known location directly before falling back to a PATH search.
+NVCC_BIN=""
+for candidate in /usr/local/cuda/bin/nvcc /usr/local/cuda-*/bin/nvcc; do
+    if [[ -x "$candidate" ]]; then
+        NVCC_BIN="$candidate"
+        break
+    fi
+done
+command -v nvcc &>/dev/null && NVCC_BIN="nvcc"
+
+if [[ -n "$NVCC_BIN" ]]; then
+    CUDA_VER=$("$NVCC_BIN" --version 2>/dev/null | grep -oP 'release \K[0-9]+\.[0-9]+' || echo "?")
+    echo "  CUDA ${CUDA_VER}: OK  (${NVCC_BIN})"
     CUDA_ARCH="87"   # Jetson Orin Nano (Ampere sm_87)
     CUDA_FLAGS="-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH}"
+    # Ensure nvcc is on PATH for cmake's CUDA detection
+    NVCC_DIR="$(dirname "$NVCC_BIN")"
+    export PATH="${NVCC_DIR}:${PATH}"
+    # Persist CUDA bin in .bashrc so it's available after install
+    if ! grep -q 'cuda/bin\|cuda-[0-9]' ~/.bashrc 2>/dev/null; then
+        echo "export PATH=\"${NVCC_DIR}:\$PATH\"" >> ~/.bashrc
+        echo "  Added ${NVCC_DIR} to ~/.bashrc"
+    fi
 else
-    echo "  WARNING: nvcc not found — llama.cpp will build CPU-only (very slow)"
-    echo "    If JetPack is installed, ensure CUDA is on your PATH:"
-    echo "    export PATH=\"/usr/local/cuda/bin:\$PATH\""
+    echo "  WARNING: nvcc not found — llama.cpp will build CPU-only (very slow for inference)"
+    echo "    Expected at: /usr/local/cuda/bin/nvcc"
+    echo "    Verify JetPack CUDA is installed: dpkg -l | grep cuda"
     CUDA_FLAGS=""
 fi
 
@@ -137,9 +156,9 @@ fi
 echo "  CUDA libs: $CUDA_LIB_PATH"
 
 # ── llama.cpp build helper ────────────────────────────────────────────────────
-# Parallel jobs: cap at 4 to stay within Jetson's memory budget during CUDA
-# compilation (each nvcc invocation can spike to ~1.5 GB).
-BUILD_JOBS=$(( $(nproc) < 4 ? $(nproc) : 4 ))
+# Cap at 3 jobs: each nvcc invocation can spike to ~1.5 GB on Jetson's unified
+# memory; 4 jobs × 1.5 GB = 6 GB which leaves the 8 GB system very tight.
+BUILD_JOBS=$(( $(nproc) < 3 ? $(nproc) : 3 ))
 
 _build_llama() {
     local label="$1"      # display label
@@ -169,43 +188,52 @@ _build_llama() {
     fi
 
     # CMake configure
-    echo "  Configuring..."
+    echo "  Configuring (output → /tmp/token-jet-cmake-${label}.log)..."
     local cmake_log="/tmp/token-jet-cmake-${label}.log"
     # shellcheck disable=SC2086
     if ! cmake -S "$dest_dir" -B "${dest_dir}/build" \
             $CUDA_FLAGS \
             -DCMAKE_BUILD_TYPE=Release \
             -DLLAMA_BUILD_TESTS=OFF \
-            -DLLAMA_BUILD_EXAMPLES=OFF \
             > "$cmake_log" 2>&1; then
         echo "  ERROR: CMake configure failed." >&2
-        echo "  Log: $cmake_log" >&2
         tail -20 "$cmake_log" >&2
         exit 1
     fi
     echo "  Configure: OK"
 
-    # Build — only the server binary to save time
-    echo "  Building llama-server with ${BUILD_JOBS} jobs (10-20 min)..."
+    # Build — stream output so the user can see progress during the long compile
+    echo "  Building llama-server with ${BUILD_JOBS} jobs (~15-25 min on Jetson Orin)..."
+    echo "  Output is shown below and also logged to /tmp/token-jet-build-${label}.log"
+    echo ""
     local build_log="/tmp/token-jet-build-${label}.log"
-    if ! cmake --build "${dest_dir}/build" \
-            --config Release \
-            --target llama-server \
-            --parallel "$BUILD_JOBS" \
-            > "$build_log" 2>&1; then
-        echo "  ERROR: Build failed." >&2
-        echo "  Log: $build_log" >&2
-        tail -20 "$build_log" >&2
+    cmake --build "${dest_dir}/build" \
+        --config Release \
+        --target llama-server \
+        --parallel "$BUILD_JOBS" \
+        2>&1 | tee "$build_log"
+    local build_exit="${PIPESTATUS[0]}"
+    echo ""
+    if [[ "$build_exit" -ne 0 ]]; then
+        echo "  ERROR: Build failed (exit ${build_exit})." >&2
+        echo "  Full log: $build_log" >&2
         exit 1
     fi
 
     if [[ -x "$binary" ]]; then
         echo "  Build: OK  →  ${binary}"
     else
-        echo "  ERROR: Build succeeded but binary not found at ${binary}" >&2
-        echo "  Log: $build_log" >&2
+        echo "  ERROR: Build completed but binary not found at ${binary}" >&2
         exit 1
     fi
+
+    # Clean intermediate files to recover disk space (~1-2 GB per build).
+    # The binary and shared libs are preserved; source stays for future rebuilds.
+    echo "  Cleaning build intermediates to free disk space..."
+    find "${dest_dir}/build" -name "*.o"  -delete 2>/dev/null || true
+    find "${dest_dir}/build" -name "*.a"  -delete 2>/dev/null || true
+    rm -rf "${dest_dir}/build/CMakeFiles" 2>/dev/null || true
+    echo "  Disk freed."
 }
 
 # ── Build llama.cpp (standard — used by MiniCPM5 and Qwen3.5) ───────────────

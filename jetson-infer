@@ -43,15 +43,38 @@ _HOME = Path.home()
 # ── Config reader ────────────────────────────────────────────
 def _load_config() -> dict:
     config_path = _HOME / ".config/token-jet/config.toml"
+    if not config_path.exists():
+        return {}
+    # Try proper TOML parser first (stdlib 3.11+, or tomli backport on 3.10)
     try:
         if sys.version_info >= (3, 11):
             import tomllib
         else:
-            import tomllib  # type: ignore[no-redef]
+            import tomli as tomllib  # type: ignore[no-redef]
         with open(config_path, "rb") as f:
             return tomllib.load(f)
+    except ImportError:
+        pass  # tomli not installed — fall through to inline parser
     except Exception:
         return {}
+    # Inline fallback: handles the simple key = "value" / key = 123 format we write
+    result: dict = {}
+    try:
+        with open(config_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip()
+                if val.startswith('"') and val.endswith('"'):
+                    result[key] = val[1:-1]
+                elif val.lstrip("-").isdigit():
+                    result[key] = int(val)
+    except Exception:
+        pass
+    return result
 
 _CONFIG: dict = {}
 
@@ -171,7 +194,7 @@ MODELS = {
     },
 }
 
-LD_LIBRARY_PATH = "/usr/local/cuda-13.2/targets/sbsa-linux/lib"
+LD_LIBRARY_PATH = "/usr/local/cuda/targets/sbsa-linux/lib"
 
 
 # ── Memory / Context Calculation ────────────────────────────

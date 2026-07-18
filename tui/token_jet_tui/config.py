@@ -30,7 +30,7 @@ class AppConfig:
     default_model: str = ""
     server_host: str = "127.0.0.1"
     server_port: int = 1234
-    ld_library_path: str = "/usr/local/cuda-13.2/targets/sbsa-linux/lib"
+    ld_library_path: str = "/usr/local/cuda/targets/sbsa-linux/lib"
     jetson_infer_bin: str = field(
         default_factory=lambda: str(Path("~/bin/jetson-infer").expanduser())
     )
