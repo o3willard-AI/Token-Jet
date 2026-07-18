@@ -2,14 +2,44 @@
 
 **Run a local LLM on your NVIDIA Jetson and control it from your workstation.**
 
-Token-Jet deploys [llama.cpp](https://github.com/ggml-org/llama.cpp) to your Jetson Orin Nano and gives you a full terminal dashboard (TUI) to download models, switch between them, chat, and monitor performance — all from one keyboard-driven interface.
+Token-Jet turns a Jetson Orin Nano into a self-contained local AI server. One command handles everything: it builds the inference engine from source, installs a terminal dashboard, and has you chatting with a model in under 30 minutes — no cloud, no subscriptions, no GPU server required.
 
 ---
 
-## Requirements
+## Prerequisites
 
-- **Jetson:** NVIDIA Jetson Orin Nano 8 GB, Ubuntu 22.04 or 24.04 (JetPack 6.x), llama.cpp built with CUDA
-- **curl and git** are included in the default JetPack image; if for some reason they are missing: `sudo apt install -y curl git`
+### Hardware
+
+- **NVIDIA Jetson Orin Nano 8 GB** (4 GB may work but is not tested)
+- A network connection during install — the script clones repos and the TUI downloads models from Hugging Face
+
+### Software — what JetPack gives you out of the box
+
+Token-Jet is designed to work with a **stock JetPack 6.x image** (Ubuntu 22.04). Everything below comes pre-installed:
+
+| What | Why it's needed |
+|------|----------------|
+| Ubuntu 22.04 | Base OS |
+| CUDA 12.x + cuDNN | GPU inference via llama.cpp |
+| Python 3.10 | TUI and jetson-infer utility |
+| `curl`, `git` | Bootstrap and source cloning |
+
+> **Haven't flashed JetPack yet?** See [`docs/hardware-setup.md`](docs/hardware-setup.md) for a step-by-step guide from unboxed device to ready-to-install.
+
+### Software — what the installer adds
+
+The install script handles all of this automatically — you don't need to do it by hand:
+
+| What | Where it lands |
+|------|---------------|
+| `cmake`, `build-essential` | System packages (via `apt`) |
+| llama.cpp (standard build) | `~/llama.cpp/` |
+| llama.cpp-prism fork | `~/llama.cpp-prism/` (needed for Ternary-Bonsai-8B) |
+| Token-Jet TUI | `~/.local/share/token-jet/` (isolated Python venv) |
+| `jetson-infer` utility | `~/bin/jetson-infer` |
+| `token-jet` launcher | `~/.local/bin/token-jet` |
+| Default config | `~/.config/token-jet/config.toml` |
+| Systemd service | Auto-starts inference server on boot |
 
 ---
 
@@ -17,13 +47,24 @@ Token-Jet deploys [llama.cpp](https://github.com/ggml-org/llama.cpp) to your Jet
 
 ### Option 1 — On the Jetson directly (recommended)
 
-Log into the Jetson (directly or over SSH) and run the one-liner:
+Log into the Jetson (directly at a keyboard, or over SSH from any machine) and run:
 
 ```bash
 curl -sL https://raw.githubusercontent.com/o3willard-AI/Token-Jet/main/scripts/install-local.sh | bash
 ```
 
-This clones the repo to `~/Token-Jet`, installs the TUI into a Python venv, deploys `jetson-infer`, and creates a `token-jet` launcher.  After it finishes:
+**What happens next** (the script runs unattended — expect 20–30 minutes total):
+
+1. Clones this repo to `~/Token-Jet`
+2. Installs `cmake` and `build-essential` if missing
+3. Detects your CUDA version and architecture automatically
+4. Clones and builds `llama.cpp` from source *(~10–15 min)*
+5. Clones and builds the `llama.cpp-prism` fork from source *(~10–15 min)*
+6. Installs the TUI into an isolated Python venv
+7. Deploys `jetson-infer` and creates the `token-jet` launcher
+8. Writes a default config and enables the systemd service
+
+When it finishes:
 
 ```bash
 source ~/.bashrc
@@ -32,7 +73,7 @@ token-jet
 
 ### Option 2 — From a Mac, Linux, or Windows (WSL) workstation
 
-Clone the repo on your **workstation**, then point the installer at your Jetson's IP:
+If you'd rather drive the install remotely, clone the repo on your **workstation** and point the installer at your Jetson's IP address:
 
 ```bash
 git clone https://github.com/o3willard-AI/Token-Jet.git
@@ -40,12 +81,7 @@ cd Token-Jet
 ./scripts/install.sh <jetson-ip>
 ```
 
-The installer SSHs into the Jetson to deploy everything remotely, then creates a local `token-jet-tui` launcher on your workstation that opens the TUI over SSH.
-
-**Supported platforms for the workstation installer:**
-- macOS
-- Linux
-- Windows with WSL 2
+The installer SSHs into the Jetson, runs the same deployment steps remotely, then creates a `token-jet-tui` launcher on your workstation that opens the TUI over SSH.
 
 **Options:**
 
@@ -54,13 +90,13 @@ The installer SSHs into the Jetson to deploy everything remotely, then creates a
 
   --user USER      Jetson SSH username (default: ubuntu)
   --pass PASS      SSH password (prompted if omitted)
-  --no-pass        Use key-based SSH auth instead of a password
-  --upgrade        Re-deploy source files; preserves user config
+  --no-pass        Use key-based SSH auth instead
+  --upgrade        Re-deploy source files; preserve config and models
   --self-update    Pull latest from GitHub, then upgrade automatically
-  --uninstall      Remove TUI, jetson-infer, and systemd service from Jetson
+  --uninstall      Remove Token-Jet from the Jetson
 ```
 
-**SSH key setup (skip the password prompt every time):**
+**Tip — skip the password prompt with SSH keys:**
 
 ```bash
 ssh-copy-id ubuntu@<jetson-ip>
@@ -79,13 +115,13 @@ ssh-copy-id ubuntu@<jetson-ip>
    ```
 
 2. **Download a model** — press `Ctrl+D` to open the model browser.  
-   Select a model from the curated list and press `Enter` to browse its GGUF files, then `Enter` again to start downloading. MiniCPM5-1B is the fastest starter; Bonsai-8B is the highest quality.
+   Select any model from the curated list and press `Enter` to see its GGUF files, then `Enter` again to start downloading. MiniCPM5-1B downloads in a few minutes and is the best starting point.
 
-3. **Switch to the downloaded model** — press `Ctrl+S`, select the model, press `Enter`.  
-   The dashboard stops any running server and starts the new one. A status line shows progress.
+3. **Load the model** — press `Ctrl+S`, select the model you downloaded, press `Enter`.  
+   A status line shows the server starting up. Takes 5–15 seconds.
 
 4. **Chat** — type in the input box at the bottom and press `Enter`.  
-   Reasoning models (like MiniCPM5-1B) show a collapsible "Reasoning" section before the answer.
+   Thinking models (like MiniCPM5-1B) display their reasoning process before the answer.
 
 ---
 
@@ -119,15 +155,15 @@ All three are available directly from the TUI model browser (`Ctrl+D`) under the
 
 ### MiniCPM5-1B (Q8_0)
 
-The speed champion — over 30 tokens per second with a generous 16K context window at just 1.1 GB. Claude-distilled, so it inherits strong instruction-following and reasoning patterns. Ideal for interactive agents where latency matters. Pairs well with the full 16K context for long conversations or document processing.
+The speed champion — over 30 tokens per second with a generous 16K context window at just 1.1 GB. Claude-distilled, so it inherits strong instruction-following and reasoning patterns. Ideal for interactive agents where latency matters.
 
 ### Qwen3.5-4B-Coder (Q4_0)
 
-The pragmatic middle choice. More than twice as fast as the Bonsai-8B with solid code generation ability. The tighter 8K context window is the trade-off — adequate for most coding tasks but limiting for very long files. A good choice when you want decent accuracy without waiting.
+The pragmatic middle choice. More than twice as fast as the Bonsai-8B with solid code generation ability. The tighter 8K context window is the main trade-off — adequate for most coding tasks but limiting for very long files.
 
 ### Ternary-Bonsai-8B (Q2_0)
 
-The accuracy leader. At 1.58-bit ternary quantization, this model consistently handles the most complex coding challenges that trip up the others. The cost is speed — at 8 tokens per second, it's the slowest of the three. Best for offline or batch code generation where quality matters more than responsiveness.
+The accuracy leader. At 1.58-bit ternary quantization, it consistently handles complex coding challenges that trip up the others. The cost is speed — 8 t/s. Best for offline or batch work where quality matters more than responsiveness. Requires the `llama.cpp-prism` build (installed automatically).
 
 ### Trade-offs at a glance
 
@@ -136,23 +172,45 @@ The accuracy leader. At 1.58-bit ternary quantization, this model consistently h
 - **Code quality:** Bonsai-8B > Qwen3.5 ≈ MiniCPM5
 - **Disk footprint:** MiniCPM5 (1.1 GB) < Bonsai-8B (2.0 GB) < Qwen3.5 (2.5 GB)
 
-For most users, MiniCPM5-1B is the best starting point — fast, generous context, and competent across a range of tasks. Switch to Bonsai-8B when you need the extra accuracy for complex code generation.
+For most users, MiniCPM5-1B is the best starting point. Switch to Bonsai-8B when you need maximum accuracy on complex code generation.
+
+---
+
+## Update / Uninstall
+
+**If installed on the Jetson directly:**
+
+```bash
+# Update TUI and jetson-infer (preserves config, models, and llama.cpp builds)
+~/Token-Jet/scripts/install-local.sh --upgrade
+
+# Remove Token-Jet (models in ~/models/ and config are not deleted)
+~/Token-Jet/scripts/install-local.sh --uninstall
+```
+
+**If installed from a workstation:**
+
+```bash
+# Pull latest and upgrade
+./scripts/install.sh <jetson-ip> --self-update
+
+# Remove Token-Jet from the Jetson
+./scripts/install.sh <jetson-ip> --uninstall
+```
 
 ---
 
 ## OpenAI-Compatible API
 
-Any OpenAI-compatible client can connect to the Jetson directly:
+Once a model is running, any OpenAI-compatible client can connect directly:
 
 ```bash
-# Endpoint
-http://<jetson-ip>:1234/v1
-
-# Example with curl
 curl http://<jetson-ip>:1234/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"local","messages":[{"role":"user","content":"hello"}],"max_tokens":256}'
 ```
+
+Endpoint: `http://<jetson-ip>:1234/v1`
 
 ---
 
@@ -166,30 +224,6 @@ jetson-infer status                   # Show running model, memory, health
 jetson-infer stop                     # Stop the server
 jetson-infer models                   # List available models with speeds + max context
 jetson-infer install                  # Install systemd service (auto-start on boot)
-```
-
----
-
-## Update / Uninstall
-
-**If installed on the Jetson directly:**
-
-```bash
-# Update (pulls latest from GitHub, preserves config and models)
-~/Token-Jet/scripts/install-local.sh --upgrade
-
-# Remove (models in ~/models/ and config are not deleted)
-~/Token-Jet/scripts/install-local.sh --uninstall
-```
-
-**If installed from a workstation:**
-
-```bash
-# Pull latest and upgrade (preserves downloaded models and config)
-./scripts/install.sh <jetson-ip> --self-update
-
-# Remove everything from the Jetson
-./scripts/install.sh <jetson-ip> --uninstall
 ```
 
 ---
@@ -209,8 +243,8 @@ Token-Jet/
 │   ├── coding-eval.py        # 5-task coding benchmark
 │   └── it-eval.py            # 5-scenario IT troubleshooting test
 └── docs/
-    ├── model-results.md      # Full eval results
     ├── hardware-setup.md     # Jetson Orin setup from scratch
+    ├── model-results.md      # Full eval results
     └── resilience.md         # Watchdog, auto-recovery, memory monitoring
 ```
 
