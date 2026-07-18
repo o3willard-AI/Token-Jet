@@ -1,77 +1,100 @@
 # <img src="images/token-jet-logo-v1.jpg" alt="Token-Jet" width="48" align="left"> Token-Jet
 
-**Turn your NVIDIA Jetson into a local inference server in one command.**
+**Run a local LLM on your NVIDIA Jetson and control it from your workstation.**
 
-Token-Jet wraps [llama.cpp](https://github.com/ggml-org/llama.cpp) into a smart inference server that automatically selects the optimal model and context window for your Jetson's available memory. Exposes an OpenAI-compatible API that any agent (OpenCode, PI, Claude Code, etc.) can use.
+Token-Jet deploys [llama.cpp](https://github.com/ggml-org/llama.cpp) to your Jetson Orin Nano and gives you a full terminal dashboard (TUI) on your workstation to download models, switch between them, chat, and monitor performance — all from one keyboard-driven interface.
 
-## Quick Start
+---
 
-### On the Jetson (one-time setup)
+## Requirements
+
+- **Jetson:** NVIDIA Jetson Orin Nano 8 GB, Ubuntu 22.04 or 24.04, llama.cpp built with CUDA
+- **Workstation:** macOS or Linux, Python 3.10+, SSH access to the Jetson
+- **Optional:** `sshpass` on the workstation for password-based auth (otherwise use SSH keys)
+
+---
+
+## Install
+
+Clone the repo on your **workstation**, then run the installer:
 
 ```bash
-# Clone and deploy
 git clone https://github.com/o3willard-AI/Token-Jet.git
 cd Token-Jet
-./scripts/deploy.sh <jetson-ip>
-
-# SSH in and start serving
-ssh jetson
-jetson-infer start
+./scripts/install.sh <jetson-ip>
 ```
 
-### On your workstation (one-time setup)
+The installer will prompt for your Jetson SSH password. It copies `jetson-infer` and related files to the Jetson, installs the TUI locally, and creates a desktop launcher named `token-jet`.
+
+**Options:**
+
+```
+./scripts/install.sh <jetson-ip> [options]
+
+  --user USER      Jetson SSH username (default: ubuntu)
+  --pass PASS      SSH password (prompted if omitted)
+  --no-pass        Use key-based SSH auth instead of a password
+  --upgrade        Re-deploy source files; preserves user config
+  --self-update    Pull latest from GitHub, then upgrade automatically
+  --uninstall      Remove TUI, jetson-infer, and systemd service from Jetson
+```
+
+**SSH key setup (skip the password prompt every time):**
 
 ```bash
-# Download the connect script
-curl -O https://raw.githubusercontent.com/o3willard-AI/Token-Jet/main/token-jet-connect
-chmod +x token-jet-connect
-
-# Run it — installs OpenCode, configures the tunnel, sets up launchers
-./token-jet-connect <jetson-ip>
+ssh-copy-id ubuntu@<jetson-ip>
+./scripts/install.sh <jetson-ip> --no-pass
 ```
 
-### Daily use
+---
 
-```bash
-# Launch OpenCode TUI (auto-connects to Jetson)
-token-jet-opencode
+## First Run
 
-# In the TUI: press /connect → select LMStudio
-# Model name doesn't matter — the Jetson uses its loaded model
+1. **Launch the TUI** from your workstation:
 
-# CLI one-shot:
-token-jet-opencode run --model lmstudio/openai/gpt-oss-20b "your prompt"
-```
+   ```bash
+   token-jet
+   # or: cd Token-Jet && python3 -m token_jet_tui
+   ```
 
-### Other agents
+2. **Download a model** — press `Ctrl+D` to open the model browser.  
+   Select a model from the curated list and press `Enter` to browse its GGUF files, then `Enter` again to start downloading. The Bonsai-8B is a great first pick if you want the highest quality; MiniCPM5-1B is the fastest.
 
-Any OpenAI-compatible client can connect directly:
+3. **Switch to the downloaded model** — press `Ctrl+S`, select the model, press `Enter`.  
+   The dashboard stops any running server and starts the new one. A status line shows progress.
 
-```bash
-# PI
-api_base: http://<jetson-ip>:1234/v1
+4. **Chat** — type in the input box at the bottom and press `Enter`.  
+   Reasoning models (like MiniCPM5-1B) show a collapsible "Reasoning" section before the answer.
 
-# curl
-curl http://<jetson-ip>:1234/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"messages":[{"role":"user","content":"hello"}],"max_tokens":50}'
-```
+---
 
-## Features
+## TUI Keyboard Reference
 
-- **Auto-context:** Calculates the largest context window that fits in available unified memory
-- **OpenAI-compatible:** Standard `/v1/chat/completions` and `/v1/models` endpoints
-- **Auto-start:** Systemd service for boot-time startup with watchdog recovery
+| Key | Action |
+|-----|--------|
+| `Ctrl+D` | Download a model (model browser) |
+| `Ctrl+S` | Switch the active model |
+| `Ctrl+X` | Remove a downloaded model |
+| `Ctrl+R` | Reset performance counters |
+| `Ctrl+P` | Palette & Settings (theme, screenshot) |
+| `Ctrl+Q` | Quit |
+| `Enter` | Send chat message |
+| `Ctrl+V` / `Shift+Insert` | Paste clipboard into chat |
+| `Esc` | Close any open dialog |
+
+---
 
 ## Recommended Models
 
-After evaluating ten models across coding tasks, IT troubleshooting scenarios, and real-world agent usage on the Jetson Orin Nano 8GB, we recommend these three. The assessments below reflect our observations as of July 2026 — they represent our best effort, not a definitive ranking.
+After evaluating ten models across coding tasks, IT troubleshooting scenarios, and real-world agent usage on the Jetson Orin Nano 8 GB, we recommend these three. The assessments below reflect our observations as of July 2026.
 
 | Model | Size | Speed | Max Context | Best For |
 |-------|------|:-----:|:-----------:|----------|
 | **MiniCPM5-1B** | 1.1 GB | 31 t/s | 16K | Interactive use, low latency, generous context |
 | **Qwen3.5-4B-Coder** | 2.5 GB | 20 t/s | 8K | Solid all-rounder, good speed at moderate context |
 | **Ternary-Bonsai-8B** | 2.0 GB | 8 t/s | 16K | Complex code generation, highest accuracy |
+
+All three are available directly from the TUI model browser (`Ctrl+D`) under the **Verified** tag.
 
 ### MiniCPM5-1B (Q8_0)
 
@@ -94,16 +117,28 @@ The accuracy leader. At 1.58-bit ternary quantization, this model consistently h
 
 For most users, MiniCPM5-1B is the best starting point — fast, generous context, and competent across a range of tasks. Switch to Bonsai-8B when you need the extra accuracy for complex code generation.
 
-## Requirements
+---
 
-- NVIDIA Jetson Orin Nano (8GB) or any Jetson with unified memory
-- Ubuntu 24.04 (JetPack 39.2+)
-- llama.cpp with CUDA support (included in deploy script)
+## OpenAI-Compatible API
 
-## Commands
+Any OpenAI-compatible client can connect to the Jetson directly:
 
 ```bash
-jetson-infer start                    # Start recommended model (MiniCPM5-1B)
+# Endpoint
+http://<jetson-ip>:1234/v1
+
+# Example with curl
+curl http://<jetson-ip>:1234/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"local","messages":[{"role":"user","content":"hello"}],"max_tokens":256}'
+```
+
+---
+
+## jetson-infer CLI (on the Jetson)
+
+```bash
+jetson-infer start                    # Start default model (MiniCPM5-1B)
 jetson-infer start --model 8B         # Start Bonsai-8B (highest accuracy)
 jetson-infer start --model qwen3.5    # Start Qwen3.5-4B-Coder
 jetson-infer status                   # Show running model, memory, health
@@ -112,49 +147,40 @@ jetson-infer models                   # List available models with speeds + max 
 jetson-infer install                  # Install systemd service (auto-start on boot)
 ```
 
-### Terminal Dashboard (TUI)
+---
 
-Token-Jet includes a terminal dashboard for monitoring and testing:
+## Update / Uninstall
 
 ```bash
-# On the Jetson
-cd Token-Jet/tui
-python3 -m venv .venv && source .venv/bin/activate
-pip install .            # installs textual + token-jet-tui
-token-jet-tui            # launch the dashboard
+# Pull latest and upgrade (preserves downloaded models and config)
+./scripts/install.sh <jetson-ip> --self-update
+
+# Remove everything from the Jetson (models in ~/models/ are not deleted)
+./scripts/install.sh <jetson-ip> --uninstall
 ```
 
-## How It Works
-
-On startup, `jetson-infer`:
-
-1. Reads available memory from `/proc/meminfo`
-2. Calculates max context: `(free - model_size - 512MB_safety) × 0.85 ÷ 144KB_per_token`
-3. Starts llama-server with the optimal `--ctx-size` and `--n-gpu-layers 99`
-4. Health-checks until ready, then reports the endpoint
-
-The per-token cost (144 KB) was empirically measured from Jetson Orin — it's ~4.4× the theoretical minimum due to CUDA alignment overhead.
+---
 
 ## Project Structure
 
 ```
 Token-Jet/
-├── jetson-infer              # The inference server utility
+├── jetson-infer              # Inference server utility (runs on the Jetson)
 ├── jetson-infer.service      # Systemd service file
-├── token-jet-connect         # One-command OpenCode + tunnel setup for workstations
-├── docs/
-│   ├── model-results.md      # Full eval results (coding + IT troubleshooting)
-│   ├── bonsai-27b.md         # 27B dead-end investigation
-│   ├── hardware-setup.md     # Jetson Orin setup from scratch
-│   └── resilience.md         # Watchdog, auto-recovery, memory monitoring
-├── tui/                      # Terminal dashboard (Textual)
-│   └── token_jet_tui/        #   pip install tui/ && token-jet-tui
+├── tui/                      # Workstation terminal dashboard (Textual)
+│   └── token_jet_tui/
+├── scripts/
+│   └── install.sh            # One-command install / upgrade / uninstall
 ├── eval/
 │   ├── coding-eval.py        # 5-task coding benchmark
 │   └── it-eval.py            # 5-scenario IT troubleshooting test
-└── scripts/
-    └── deploy.sh             # One-command deploy to Jetson
+└── docs/
+    ├── model-results.md      # Full eval results
+    ├── hardware-setup.md     # Jetson Orin setup from scratch
+    └── resilience.md         # Watchdog, auto-recovery, memory monitoring
 ```
+
+---
 
 ## License
 
