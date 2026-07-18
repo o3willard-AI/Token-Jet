@@ -217,13 +217,19 @@ Endpoint: `http://<jetson-ip>:1234/v1`
 ## jetson-infer CLI (on the Jetson)
 
 ```bash
-jetson-infer start                    # Start default model (MiniCPM5-1B)
-jetson-infer start --model 8B         # Start Bonsai-8B (highest accuracy)
-jetson-infer start --model qwen3.5    # Start Qwen3.5-4B-Coder
-jetson-infer status                   # Show running model, memory, health
-jetson-infer stop                     # Stop the server
-jetson-infer models                   # List available models with speeds + max context
-jetson-infer install                  # Install systemd service (auto-start on boot)
+jetson-infer start                                  # Start the default model
+jetson-infer start --model ~/models/foo.gguf        # Start any model by full path
+jetson-infer status                                 # Show running model, memory, health
+jetson-infer stop                                   # Stop the server
+jetson-infer models                                 # List downloaded models + estimated context
+jetson-infer install                                # Install systemd service (auto-start on boot)
+```
+
+The **default model** is whichever path is set as `default_model` in `~/.config/token-jet/config.toml`. If that's empty, `jetson-infer start` uses the first `.gguf` file found in `model_dir` (alphabetically). Set it once and forget it:
+
+```bash
+# In ~/.config/token-jet/config.toml
+default_model = "/home/ubuntu/models/MiniCPM5-1B-Claude-Opus-Fable5-Thinking-Q8_0.gguf"
 ```
 
 ---

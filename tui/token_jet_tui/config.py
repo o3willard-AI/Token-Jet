@@ -24,6 +24,10 @@ class AppConfig:
     llama_cpp_bin: str = field(
         default_factory=lambda: str(Path("~/llama.cpp/build/bin").expanduser())
     )
+    llama_cpp_prism_bin: str = field(
+        default_factory=lambda: str(Path("~/llama.cpp-prism/build/bin").expanduser())
+    )
+    default_model: str = ""
     server_host: str = "127.0.0.1"
     server_port: int = 1234
     ld_library_path: str = "/usr/local/cuda-13.2/targets/sbsa-linux/lib"
@@ -61,6 +65,8 @@ def save_default_config() -> None:
 
 model_dir = "{cfg.model_dir}"
 llama_cpp_bin = "{cfg.llama_cpp_bin}"
+llama_cpp_prism_bin = "{cfg.llama_cpp_prism_bin}"
+default_model = ""
 server_host = "{cfg.server_host}"
 server_port = {cfg.server_port}
 ld_library_path = "{cfg.ld_library_path}"

@@ -277,13 +277,15 @@ if [[ "$MODE" == "install" ]]; then
     if [[ ! -f "${CONFIG_DIR}/config.toml" ]]; then
         cat > "${CONFIG_DIR}/config.toml" << TOML_EOF
 # Token-Jet configuration
-model_dir          = "/home/${JETSON_USER}/models"
-llama_cpp_bin      = "/home/${JETSON_USER}/llama.cpp/build/bin"
-server_host        = "127.0.0.1"
-server_port        = 1234
-ld_library_path    = "${CUDA_LIB_PATH}"
-jetson_infer_bin   = "/home/${JETSON_USER}/bin/jetson-infer"
-hf_download_timeout = 300
+model_dir            = "/home/${JETSON_USER}/models"
+llama_cpp_bin        = "/home/${JETSON_USER}/llama.cpp/build/bin"
+llama_cpp_prism_bin  = "/home/${JETSON_USER}/llama.cpp-prism/build/bin"
+default_model        = ""
+server_host          = "127.0.0.1"
+server_port          = 1234
+ld_library_path      = "${CUDA_LIB_PATH}"
+jetson_infer_bin     = "/home/${JETSON_USER}/bin/jetson-infer"
+hf_download_timeout  = 300
 TOML_EOF
         echo "  config: ${CONFIG_DIR}/config.toml"
     else

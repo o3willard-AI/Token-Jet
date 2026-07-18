@@ -39,7 +39,99 @@ WATCHDOG_LOG = "/tmp/jetson-watchdog.log"
 
 _HOME = Path.home()
 
-# Available models — ordered by preference (best first)
+
+# ── Config reader ────────────────────────────────────────────
+def _load_config() -> dict:
+    config_path = _HOME / ".config/token-jet/config.toml"
+    try:
+        if sys.version_info >= (3, 11):
+            import tomllib
+        else:
+            import tomllib  # type: ignore[no-redef]
+        with open(config_path, "rb") as f:
+            return tomllib.load(f)
+    except Exception:
+        return {}
+
+_CONFIG: dict = {}
+
+def _cfg(key: str, default):
+    global _CONFIG
+    if not _CONFIG:
+        _CONFIG = _load_config()
+    return _CONFIG.get(key, default)
+
+
+# ── Model resolution helpers ─────────────────────────────────
+
+def _resolve_model_path(model_arg) -> str:
+    """Turn a --model argument (or None) into a full .gguf path."""
+    if model_arg:
+        if os.path.isabs(model_arg) or model_arg.startswith("~/"):
+            path = os.path.expanduser(model_arg)
+            if os.path.exists(path):
+                return path
+        # Try bare filename inside model_dir
+        model_dir = _cfg("model_dir", str(_HOME / "models"))
+        for candidate in (
+            os.path.join(model_dir, model_arg),
+            os.path.join(model_dir, model_arg + ".gguf"),
+        ):
+            if os.path.exists(candidate):
+                return candidate
+        # Accept as literal path even if it doesn't exist yet; validation in start_server
+        return os.path.expanduser(model_arg)
+
+    # No argument — use default_model from config, else first .gguf in model_dir
+    import glob
+    default = _cfg("default_model", "")
+    if default and os.path.exists(os.path.expanduser(default)):
+        return os.path.expanduser(default)
+
+    model_dir = _cfg("model_dir", str(_HOME / "models"))
+    ggufs = sorted(glob.glob(os.path.join(model_dir, "*.gguf")))
+    if ggufs:
+        return ggufs[0]
+
+    print(f"No models found in {model_dir}.")
+    print("Download one with:  token-jet  →  Ctrl+D")
+    sys.exit(1)
+
+
+def _select_server_bin(model_path: str) -> str:
+    """Choose standard or prism llama-server based on the model filename."""
+    name = os.path.basename(model_path).lower()
+    if any(kw in name for kw in ("bonsai", "ternary", "prism")):
+        prism_bin = os.path.expanduser(
+            _cfg("llama_cpp_prism_bin", str(_HOME / "llama.cpp-prism/build/bin/llama-server"))
+        )
+        if os.path.exists(prism_bin):
+            return prism_bin
+        print(f"Warning: prism binary not found at {prism_bin}, falling back to standard build")
+    return os.path.expanduser(
+        _cfg("llama_cpp_bin", str(_HOME / "llama.cpp/build/bin/llama-server"))
+    )
+
+
+def _infer_model_info(model_path: str) -> dict:
+    """Return model metadata from the known list, or estimate from file size."""
+    basename = os.path.basename(model_path)
+    for m in MODELS.values():
+        if os.path.basename(m["path"]) == basename:
+            return m
+    try:
+        size_gb = os.path.getsize(model_path) / (1024 ** 3)
+    except OSError:
+        size_gb = 4.0
+    return {
+        "name": os.path.splitext(basename)[0],
+        "size_gb": size_gb,
+        "speed_ts": None,
+        "max_ctx": 32768,
+    }
+
+
+# Available models — metadata for context-window calculation (not exposed as CLI keys)
 MODELS = {
     "MiniCPM5": {
         "name": "MiniCPM5-1B (Claude-distilled)",
@@ -79,7 +171,6 @@ MODELS = {
     },
 }
 
-DEFAULT_MODEL = "MiniCPM5"
 LD_LIBRARY_PATH = "/usr/local/cuda-13.2/targets/sbsa-linux/lib"
 
 
@@ -157,56 +248,62 @@ def get_pid():
         return None
 
 
-def start_server(model_key, port=PORT):
-    """Start llama-server with optimal configuration."""
-    if model_key not in MODELS:
-        print(f"Unknown model: {model_key}. Available: {list(MODELS.keys())}")
+def start_server(model_path: str, port=PORT):
+    """Start llama-server for the given .gguf model file."""
+    model_path = os.path.expanduser(model_path)
+
+    if not os.path.exists(model_path):
+        print(f"Model file not found: {model_path}")
         sys.exit(1)
-    
-    model = MODELS[model_key]
-    
+
     if is_running(port):
         print("Server already running. Use 'jetson-infer stop' first.")
         sys.exit(1)
-    
+
+    model = _infer_model_info(model_path)
+    server_bin = _select_server_bin(model_path)
+
+    if not os.path.exists(server_bin):
+        print(f"llama-server not found: {server_bin}")
+        print("Run the Token-Jet installer to build llama.cpp.")
+        sys.exit(1)
+
     free_mb = get_free_memory_mb()
     ctx_size = calculate_max_context(model, free_mb)
-    
-    print(f"Model:       {model['name']}")
-    print(f"Size:        {model['size_gb']:.2f} GB")
-    print(f"Speed:       {model['speed_ts']} t/s")
-    print(f"Free RAM:    {free_mb} MB")
-    print(f"Context:     {ctx_size} tokens")
-    print(f"KV budget:   ~{ctx_size * model['n_layers'] * model['n_kv_heads'] * model['head_dim'] * 2 // (1024*1024)} MB")
-    print(f"Endpoint:    http://{HOST}:{port}")
-    print(f"Chat API:    http://{HOST}:{port}/v1/chat/completions")
-    print(f"Health:      http://{HOST}:{port}/health")
+
+    print(f"Model:    {model['name']}")
+    print(f"File:     {model_path}")
+    print(f"Size:     {model['size_gb']:.2f} GB")
+    if model.get("speed_ts"):
+        print(f"Speed:    {model['speed_ts']} t/s")
+    print(f"Free RAM: {free_mb} MB")
+    print(f"Context:  {ctx_size} tokens")
+    print(f"Endpoint: http://{HOST}:{port}")
+    print(f"Chat API: http://{HOST}:{port}/v1/chat/completions")
     print()
-    
+
     env = os.environ.copy()
-    env["LD_LIBRARY_PATH"] = LD_LIBRARY_PATH
-    
+    env["LD_LIBRARY_PATH"] = _cfg("ld_library_path", LD_LIBRARY_PATH)
+
     cmd = [
-        model["server_bin"],
-        "-m", model["path"],
+        server_bin,
+        "-m", model_path,
         "--host", HOST,
         "--port", str(port),
         "--n-gpu-layers", "99",
         "--ctx-size", str(ctx_size),
         "--metrics",
     ]
-    
+
     print(f"Starting: {' '.join(cmd)}")
     print(f"Logs: {LOG_FILE}")
-    
+
     with open(LOG_FILE, "w") as log:
         proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env)
-    
-    # Write PID
+
     with open(PID_FILE, "w") as f:
         f.write(str(proc.pid))
-    
-    # Wait for health
+
     print("Waiting for server to become healthy...", end="", flush=True)
     for i in range(300):  # 10 minutes max
         time.sleep(2)
@@ -215,12 +312,9 @@ def start_server(model_key, port=PORT):
             print()
             print("Server is running. Agents can connect at:")
             print(f"  http://<jetson-ip>:{port}/v1/chat/completions")
-            print()
-            print("Configure your agent's OpenAI-compatible endpoint to this URL.")
-            print("Example for PI: set api_base to http://192.168.101.10:1234/v1")
             return
         print(".", end="", flush=True)
-    
+
     print(" timeout!")
     print("Check logs: tail -f", LOG_FILE)
     sys.exit(1)
@@ -286,17 +380,36 @@ def show_status():
 
 
 def show_models():
-    """List available models."""
+    """List downloaded GGUF models and their estimated context window."""
+    import glob
+    model_dir = _cfg("model_dir", str(_HOME / "models"))
     free_mb = get_free_memory_mb()
+
+    ggufs = sorted(glob.glob(os.path.join(model_dir, "*.gguf")))
+    if not ggufs:
+        print(f"No models found in {model_dir}")
+        print("Download one with:  token-jet  →  Ctrl+D")
+        return
+
     print(f"Free memory: {free_mb} MB")
+    print(f"Models in {model_dir}:")
     print()
-    print(f"{'Key':<10} {'Model':<30} {'Size':<8} {'Speed':<10} {'Max Ctx':<10}")
+    print(f"{'Model':<52} {'Size':>7}  {'Max Ctx':>8}")
     print("-" * 72)
-    for key, m in MODELS.items():
-        ctx = calculate_max_context(m, free_mb)
-        print(f"{key:<10} {m['name']:<30} {m['size_gb']:.1f} GB  {m['speed_ts']:.1f} t/s     {ctx}")
+    for path in ggufs:
+        info = _infer_model_info(path)
+        ctx = calculate_max_context(info, free_mb)
+        print(f"{os.path.basename(path):<52} {info['size_gb']:>5.1f} GB  {ctx:>8}")
+
+    default_cfg = _cfg("default_model", "")
+    if default_cfg and os.path.exists(os.path.expanduser(default_cfg)):
+        default_name = os.path.basename(default_cfg)
+    elif ggufs:
+        default_name = os.path.basename(ggufs[0]) + "  (first found)"
+    else:
+        default_name = "(none)"
     print()
-    print(f"Default: {DEFAULT_MODEL}")
+    print(f"Default (jetson-infer start): {default_name}")
 
 
 def install_service():
@@ -339,7 +452,7 @@ def install_service():
         pass
 
 
-def watchdog_loop(model_key, port, max_restarts=MAX_RESTARTS):
+def watchdog_loop(model_path: str, port, max_restarts=MAX_RESTARTS):
     """Monitor server health and memory. Restart on failure."""
     import datetime
     
@@ -395,7 +508,7 @@ def watchdog_loop(model_key, port, max_restarts=MAX_RESTARTS):
             # Restart
             wprint("Restarting server...")
             try:
-                start_server(model_key, port)
+                start_server(model_path, port)
                 restart_count = 0  # Reset on successful start
                 wprint("Server recovered")
             except SystemExit:
@@ -414,37 +527,40 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  jetson-infer start                Start with best model (8B)
-  jetson-infer start --model 4B     Start with 4B model
-  jetson-infer status               Show server status
-  jetson-infer stop                 Stop the server
-  jetson-infer models               List available models
+  jetson-infer start                              Start default model
+  jetson-infer start --model ~/models/foo.gguf   Start a specific model
+  jetson-infer status                             Show server status
+  jetson-infer stop                               Stop the server
+  jetson-infer models                             List downloaded models
         """
     )
     sub = parser.add_subparsers(dest="command", help="Command")
-    
+
     start_parser = sub.add_parser("start", help="Start inference server")
-    start_parser.add_argument("--model", default=DEFAULT_MODEL,
-                              choices=list(MODELS.keys()),
-                              help=f"Model to load (default: {DEFAULT_MODEL})")
+    start_parser.add_argument(
+        "--model", default=None, metavar="PATH",
+        help="Full path to a .gguf model file. "
+             "Omit to use default_model from config, or the first .gguf in model_dir.",
+    )
     start_parser.add_argument("--port", type=int, default=PORT,
                               help=f"Port to listen on (default: {PORT})")
     start_parser.add_argument("--watchdog", action="store_true",
                               help="Run with health/memory monitoring and auto-restart")
-    
+
     sub.add_parser("stop", help="Stop inference server")
     sub.add_parser("status", help="Show server status")
-    sub.add_parser("models", help="List available models")
+    sub.add_parser("models", help="List downloaded models with estimated context window")
     sub.add_parser("install", help="Install systemd service for auto-start on boot")
-    
+
     args = parser.parse_args()
-    
+
     if args.command == "start":
+        model_path = _resolve_model_path(args.model)
         if args.watchdog:
-            start_server(args.model, args.port)
-            watchdog_loop(args.model, args.port)
+            start_server(model_path, args.port)
+            watchdog_loop(model_path, args.port)
         else:
-            start_server(args.model, args.port)
+            start_server(model_path, args.port)
     elif args.command == "stop":
         stop_server()
     elif args.command == "status":
