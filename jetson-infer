@@ -37,12 +37,14 @@ LOG_FILE = "/tmp/jetson-infer.log"
 PID_FILE = "/tmp/jetson-infer.pid"
 WATCHDOG_LOG = "/tmp/jetson-watchdog.log"
 
+_HOME = Path.home()
+
 # Available models — ordered by preference (best first)
 MODELS = {
     "MiniCPM5": {
         "name": "MiniCPM5-1B (Claude-distilled)",
-        "path": "/home/sblanken/models/MiniCPM5-1B-Claude-Opus-Fable5-Thinking-Q8_0.gguf",
-        "server_bin": "/home/sblanken/llama.cpp/build/bin/llama-server",
+        "path": str(_HOME / "models/MiniCPM5-1B-Claude-Opus-Fable5-Thinking-Q8_0.gguf"),
+        "server_bin": str(_HOME / "llama.cpp/build/bin/llama-server"),
         "size_gb": 1.13,
         "speed_ts": 31.2,
         "description": "Fastest. Claude-distilled thinking model. 31 t/s, 16K context. Best for interactive use.",
@@ -53,8 +55,8 @@ MODELS = {
     },
     "qwen3.5": {
         "name": "Qwen3.5-4B-Coder",
-        "path": "/home/sblanken/models/qwen3.5-4B-super-coder.Q4_0.gguf",
-        "server_bin": "/home/sblanken/llama.cpp/build/bin/llama-server",
+        "path": str(_HOME / "models/qwen3.5-4B-super-coder.Q4_0.gguf"),
+        "server_bin": str(_HOME / "llama.cpp/build/bin/llama-server"),
         "size_gb": 2.49,
         "speed_ts": 20.0,
         "description": "Solid all-rounder. 2.4× faster than Bonsai-8B. 8K context.",
@@ -65,8 +67,8 @@ MODELS = {
     },
     "8B": {
         "name": "Ternary-Bonsai-8B",
-        "path": "/home/sblanken/models/Ternary-Bonsai-8B-Q2_0.gguf",
-        "server_bin": "/home/sblanken/llama.cpp-prism/build/bin/llama-server",
+        "path": str(_HOME / "models/Ternary-Bonsai-8B-Q2_0.gguf"),
+        "server_bin": str(_HOME / "llama.cpp-prism/build/bin/llama-server"),
         "size_gb": 2.03,
         "speed_ts": 8.4,
         "description": "Highest accuracy. 1.58-bit ternary. Handles complex code the others miss. 16K context.",
@@ -324,12 +326,13 @@ def install_service():
     print("  systemctl --user stop jetson-infer     # Stop")
     print("  journalctl --user -u jetson-infer -f   # Follow logs")
     print()
+    current_user = os.getenv("USER") or Path.home().name
     print("Note: 'linger' must be enabled for user services to start at boot:")
-    print("  sudo loginctl enable-linger sblanken")
-    
+    print(f"  sudo loginctl enable-linger {current_user}")
+
     # Try to enable linger with sudo
     try:
-        subprocess.run(["sudo", "loginctl", "enable-linger", "sblanken"],
+        subprocess.run(["sudo", "loginctl", "enable-linger", current_user],
                       check=False, timeout=10)
         print("  (linger enabled automatically)")
     except:
