@@ -122,18 +122,24 @@ def _resolve_model_path(model_arg) -> str:
 
 
 def _select_server_bin(model_path: str) -> str:
-    """Choose standard or prism llama-server based on the model filename."""
+    """Choose standard or prism llama-server based on the model filename.
+
+    config.toml stores llama_cpp_bin as a directory (build/bin).
+    Always append the binary name here so we return an executable path.
+    """
     name = os.path.basename(model_path).lower()
     if any(kw in name for kw in ("bonsai", "ternary", "prism")):
-        prism_bin = os.path.expanduser(
-            _cfg("llama_cpp_prism_bin", str(_HOME / "llama.cpp-prism/build/bin/llama-server"))
+        prism_dir = os.path.expanduser(
+            _cfg("llama_cpp_prism_bin", str(_HOME / "llama.cpp-prism/build/bin"))
         )
-        if os.path.exists(prism_bin):
+        prism_bin = os.path.join(prism_dir, "llama-server")
+        if os.path.isfile(prism_bin) and os.access(prism_bin, os.X_OK):
             return prism_bin
         print(f"Warning: prism binary not found at {prism_bin}, falling back to standard build")
-    return os.path.expanduser(
-        _cfg("llama_cpp_bin", str(_HOME / "llama.cpp/build/bin/llama-server"))
+    bin_dir = os.path.expanduser(
+        _cfg("llama_cpp_bin", str(_HOME / "llama.cpp/build/bin"))
     )
+    return os.path.join(bin_dir, "llama-server")
 
 
 def _infer_model_info(model_path: str) -> dict:
@@ -286,8 +292,8 @@ def start_server(model_path: str, port=PORT):
     model = _infer_model_info(model_path)
     server_bin = _select_server_bin(model_path)
 
-    if not os.path.exists(server_bin):
-        print(f"llama-server not found: {server_bin}")
+    if not os.path.isfile(server_bin) or not os.access(server_bin, os.X_OK):
+        print(f"llama-server not found or not executable: {server_bin}")
         print("Run the Token-Jet installer to build llama.cpp.")
         sys.exit(1)
 
