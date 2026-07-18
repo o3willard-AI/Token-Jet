@@ -19,6 +19,26 @@ log = logging.getLogger(__name__)
 # Tested / known-good on Jetson Orin Nano 8 GB.
 # (repo_id, display_name, approx_size, tag, description)
 _RECOMMENDED: list[tuple[str, str, str, str, str]] = [
+    # ── Pre-configured / verified on this hardware ────────────────────────────
+    (
+        "GnLOLot/MiniCPM5-1B-Claude-Opus-Fable5-Thinking-GGUF",
+        "MiniCPM5-1B-Thinking",
+        "~1.1 GB", "Verified",
+        "Default model — Claude-distilled thinking, 31 t/s",
+    ),
+    (
+        "jica98/qwen3.5-4B-super-coder",
+        "Qwen3.5-4B-Super-Coder",
+        "~2.4 GB", "Verified",
+        "Strong code generation, 20 t/s",
+    ),
+    (
+        "prism-ml/Ternary-Bonsai-8B-gguf",
+        "Ternary-Bonsai-8B",
+        "~2.0 GB", "Verified",
+        "Highest quality — 1.58-bit ternary, 8.4 t/s",
+    ),
+    # ── Community picks ───────────────────────────────────────────────────────
     (
         "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
         "Qwen2.5-0.5B-Instruct",
