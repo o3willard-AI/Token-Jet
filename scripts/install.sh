@@ -1,39 +1,47 @@
 #!/usr/bin/env bash
 # Token-Jet installer — deploy everything to a Jetson Orin Nano.
 #
-# Usage:
-#   ./scripts/install.sh [options] [jetson-ip]
-#   ./scripts/install.sh --upgrade [jetson-ip]
-#   ./scripts/install.sh --uninstall [jetson-ip]
+# Usage (from a cloned repo):
+#   ./scripts/install.sh <jetson-ip> [options]
+#   ./scripts/install.sh <jetson-ip> --upgrade
+#   ./scripts/install.sh <jetson-ip> --self-update
+#   ./scripts/install.sh <jetson-ip> --uninstall
 #
 # Options:
-#   --upgrade     Replace source files and reinstall; preserves user config
-#   --uninstall   Remove TUI, jetson-infer, and systemd service
-#   --user USER   Jetson username (default: sblanken)
-#   --pass PASS   SSH password for sshpass (default: 101abn)
-#   --no-pass     Use key-based SSH instead of password
-#   -h, --help    Show this help
+#   --upgrade       Replace source files and reinstall; preserves user config
+#   --self-update   Pull latest from GitHub then run --upgrade automatically
+#   --uninstall     Remove TUI, jetson-infer, and systemd service
+#   --user USER     Jetson SSH username (default: ubuntu)
+#   --pass PASS     SSH password; omit to be prompted, or use --no-pass
+#   --no-pass       Use key-based SSH (no password required)
+#   -h, --help      Show this help
+#
+# Environment variable overrides (useful for CI / scripting):
+#   INSTALL_JETSON_IP    Jetson IP address
+#   INSTALL_JETSON_USER  Jetson username
+#   INSTALL_JETSON_PASS  SSH password
 
 set -euo pipefail
 
-# ── Defaults ────────────────────────────────────────────────────────────────
-JETSON_IP="${INSTALL_JETSON_IP:-192.168.101.10}"
-JETSON_USER="${INSTALL_JETSON_USER:-sblanken}"
-JETSON_PASS="${INSTALL_JETSON_PASS:-101abn}"
+# ── Defaults ─────────────────────────────────────────────────────────────────
+JETSON_IP="${INSTALL_JETSON_IP:-}"
+JETSON_USER="${INSTALL_JETSON_USER:-ubuntu}"
+JETSON_PASS="${INSTALL_JETSON_PASS:-}"
 MODE="install"
 USE_SSHPASS=true
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# ── Argument parsing ─────────────────────────────────────────────────────────
+# ── Argument parsing ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --upgrade)   MODE="upgrade";   shift ;;
-        --uninstall) MODE="uninstall"; shift ;;
-        --user)      JETSON_USER="$2"; shift 2 ;;
-        --pass)      JETSON_PASS="$2"; shift 2 ;;
-        --no-pass)   USE_SSHPASS=false; shift ;;
+        --upgrade)     MODE="upgrade";     shift ;;
+        --self-update) MODE="self-update"; shift ;;
+        --uninstall)   MODE="uninstall";   shift ;;
+        --user)        JETSON_USER="$2";   shift 2 ;;
+        --pass)        JETSON_PASS="$2";   shift 2 ;;
+        --no-pass)     USE_SSHPASS=false;  shift ;;
         -h|--help)
-            sed -n '2,20p' "$0" | sed 's/^# //'
+            sed -n '2,22p' "$0" | sed 's/^# //'
             exit 0 ;;
         -*)
             echo "Unknown option: $1" >&2; exit 1 ;;
@@ -41,6 +49,19 @@ while [[ $# -gt 0 ]]; do
             JETSON_IP="$1"; shift ;;
     esac
 done
+
+# ── Validate required arguments ───────────────────────────────────────────────
+if [[ -z "$JETSON_IP" ]]; then
+    echo "ERROR: Jetson IP address is required." >&2
+    echo "Usage: $0 <jetson-ip> [--upgrade|--self-update|--uninstall] [--user USER] [--pass PASS|--no-pass]" >&2
+    exit 1
+fi
+
+# Prompt for password if needed and not provided
+if $USE_SSHPASS && [[ -z "$JETSON_PASS" ]]; then
+    read -s -p "SSH password for ${JETSON_USER}@${JETSON_IP}: " JETSON_PASS
+    echo
+fi
 
 JETSON="${JETSON_USER}@${JETSON_IP}"
 INSTALL_BASE="/home/${JETSON_USER}/.local/share/token-jet"
@@ -57,7 +78,6 @@ _ssh() {
 }
 
 _scp_to() {
-    # _scp_to <local> <remote-path>
     local src="$1" dst="$2"
     if $USE_SSHPASS && command -v sshpass &>/dev/null; then
         sshpass -p "$JETSON_PASS" scp -o StrictHostKeyChecking=no -r "$src" "$JETSON:$dst"
@@ -67,7 +87,6 @@ _scp_to() {
 }
 
 _pipe_to() {
-    # Pipe stdin to a remote file (path must not contain spaces)
     local remote_path="$1"
     if $USE_SSHPASS && command -v sshpass &>/dev/null; then
         sshpass -p "$JETSON_PASS" ssh -o StrictHostKeyChecking=no "$JETSON" "cat > $remote_path"
@@ -76,12 +95,35 @@ _pipe_to() {
     fi
 }
 
-# ── Banner ───────────────────────────────────────────────────────────────────
+# ── Banner ────────────────────────────────────────────────────────────────────
 echo ""
 echo "=== Token-Jet Installer ==="
 echo "Mode:   $MODE"
 echo "Target: ${JETSON}"
 echo ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SELF-UPDATE: pull latest from GitHub, then re-exec as upgrade
+# ─────────────────────────────────────────────────────────────────────────────
+if [[ "$MODE" == "self-update" ]]; then
+    if [[ ! -d "${REPO_ROOT}/.git" ]]; then
+        echo "ERROR: --self-update requires a git clone (no .git directory found)." >&2
+        exit 1
+    fi
+    echo "Pulling latest from GitHub..."
+    git -C "$REPO_ROOT" pull --ff-only
+    echo ""
+    echo "Re-running installer as --upgrade..."
+    echo ""
+    # Re-exec with same arguments but mode replaced with --upgrade
+    ARGS=("$JETSON_IP" "--upgrade" "--user" "$JETSON_USER")
+    if $USE_SSHPASS; then
+        ARGS+=("--pass" "$JETSON_PASS")
+    else
+        ARGS+=("--no-pass")
+    fi
+    exec "$0" "${ARGS[@]}"
+fi
 
 # ── Connectivity check ────────────────────────────────────────────────────────
 echo "Checking SSH access..."
@@ -89,7 +131,7 @@ if ! _ssh 'echo OK' &>/dev/null; then
     echo "ERROR: Cannot reach ${JETSON} via SSH."
     echo "  Check the IP, username, and that the Jetson is online."
     if ! $USE_SSHPASS; then
-        echo "  (Key-based auth — make sure your SSH key is installed)"
+        echo "  (Key-based auth — make sure your SSH key is installed on the Jetson)"
     fi
     exit 1
 fi
@@ -103,17 +145,13 @@ if [[ "$MODE" == "uninstall" ]]; then
     echo "Uninstalling Token-Jet from ${JETSON}..."
     _ssh "
         set -e
-        # Stop service if running
         systemctl --user stop jetson-infer 2>/dev/null || true
         systemctl --user disable jetson-infer 2>/dev/null || true
         rm -f ~/.config/systemd/user/jetson-infer.service
         systemctl --user daemon-reload 2>/dev/null || true
 
-        # Remove TUI
         rm -rf '${INSTALL_BASE}'
         rm -f '${BIN_DIR}/token-jet-tui'
-
-        # Remove jetson-infer
         rm -f ~/bin/jetson-infer ~/bin/jetson-infer.service
 
         echo 'Files removed.'
@@ -124,7 +162,6 @@ if [[ "$MODE" == "uninstall" ]]; then
     echo ""
     echo "Uninstall complete."
 
-    # Remove workstation launcher
     WS_LAUNCHER="$HOME/bin/token-jet-tui"
     if [[ -f "$WS_LAUNCHER" ]]; then
         rm -f "$WS_LAUNCHER"
@@ -165,12 +202,10 @@ echo "  jetson-infer.service: OK"
 # ─────────────────────────────────────────────────────────────────────────────
 echo "Setting up TUI environment..."
 
-# On upgrade, remove old source first
 if [[ "$MODE" == "upgrade" ]]; then
     _ssh "rm -rf '${INSTALL_BASE}/token_jet_tui'"
 fi
 
-# Create directory and venv
 _ssh "mkdir -p '${INSTALL_BASE}' '${BIN_DIR}'"
 _ssh "
     if [[ ! -d '${INSTALL_BASE}/venv' ]]; then
@@ -187,7 +222,6 @@ _ssh "'${INSTALL_BASE}/venv/bin/pip' install -q 'textual>=0.50.0'"
 echo "  textual: OK"
 
 echo "Transferring TUI source..."
-# Pack and send the token_jet_tui package directory
 tar -czf - -C "${REPO_ROOT}/tui" token_jet_tui | \
     if $USE_SSHPASS && command -v sshpass &>/dev/null; then
         sshpass -p "$JETSON_PASS" ssh -o StrictHostKeyChecking=no "$JETSON" "tar -xzf - -C '${INSTALL_BASE}/'"
@@ -209,7 +243,6 @@ LAUNCHER_EOF
 chmod +x '${BIN_DIR}/token-jet-tui'"
 echo "  ${BIN_DIR}/token-jet-tui: OK"
 
-# Ensure ~/.local/bin is in PATH
 _ssh "
     if ! grep -q '.local/bin' ~/.bashrc 2>/dev/null; then
         echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc
@@ -218,7 +251,7 @@ _ssh "
 "
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Default config
+# Default config (install only)
 # ─────────────────────────────────────────────────────────────────────────────
 if [[ "$MODE" == "install" ]]; then
     echo "Writing default config..."
@@ -226,16 +259,17 @@ if [[ "$MODE" == "install" ]]; then
         mkdir -p '${CONFIG_DIR}'
         if [[ ! -f '${CONFIG_DIR}/config.toml' ]]; then
             cat > '${CONFIG_DIR}/config.toml' << 'TOML_EOF'
-# Token-Jet configuration
-model_dir = \"/home/${JETSON_USER}/models\"
-llama_cpp_bin = \"/home/${JETSON_USER}/llama.cpp/build/bin\"
-server_host = \"127.0.0.1\"
-server_port = 1234
-ld_library_path = \"/usr/local/cuda-13.2/targets/sbsa-linux/lib\"
-jetson_infer_bin = \"/home/${JETSON_USER}/bin/jetson-infer\"
+# Token-Jet configuration — edit paths to match your Jetson setup.
+model_dir          = \"/home/${JETSON_USER}/models\"
+llama_cpp_bin      = \"/home/${JETSON_USER}/llama.cpp/build/bin\"
+server_host        = \"127.0.0.1\"
+server_port        = 1234
+ld_library_path    = \"/usr/local/cuda-13.2/targets/sbsa-linux/lib\"
+jetson_infer_bin   = \"/home/${JETSON_USER}/bin/jetson-infer\"
 hf_download_timeout = 300
 TOML_EOF
-            echo 'Config written'
+            echo 'Config written to ${CONFIG_DIR}/config.toml'
+            echo 'Edit it to match your llama.cpp and model paths before first use.'
         else
             echo 'Config preserved (already exists)'
         fi
@@ -243,7 +277,7 @@ TOML_EOF
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Systemd service (install only, not upgrade)
+# Systemd service (install only)
 # ─────────────────────────────────────────────────────────────────────────────
 if [[ "$MODE" == "install" ]]; then
     echo "Installing systemd service..."
@@ -254,7 +288,6 @@ if [[ "$MODE" == "install" ]]; then
         systemctl --user enable jetson-infer 2>/dev/null || true
         echo 'systemd service: enabled'
     "
-    # Enable linger so service starts at boot
     _ssh "sudo loginctl enable-linger '${JETSON_USER}' 2>/dev/null || true"
 fi
 
@@ -264,15 +297,27 @@ fi
 WS_BIN_DIR="$HOME/bin"
 WS_LAUNCHER="${WS_BIN_DIR}/token-jet-tui"
 mkdir -p "$WS_BIN_DIR"
-cat > "$WS_LAUNCHER" << WSLAUNCHER_EOF
+
+if $USE_SSHPASS && command -v sshpass &>/dev/null && [[ -n "$JETSON_PASS" ]]; then
+    # Embed sshpass so the launcher doesn't prompt for a password
+    cat > "$WS_LAUNCHER" << WSLAUNCHER_EOF
 #!/usr/bin/env bash
-# Launch Token-Jet TUI on the Jetson via SSH.
-exec ssh -t ${JETSON} "PATH=\$HOME/.local/bin:\$PATH token-jet-tui \$*"
+# Launch Token-Jet TUI on the Jetson via SSH (password auth).
+exec sshpass -p '${JETSON_PASS}' ssh -o StrictHostKeyChecking=no -t ${JETSON} "PATH=\$HOME/.local/bin:\$PATH token-jet-tui \$*"
 WSLAUNCHER_EOF
-chmod +x "$WS_LAUNCHER"
+    chmod 700 "$WS_LAUNCHER"   # restrict read — contains password
+else
+    # Key-based auth — no password needed
+    cat > "$WS_LAUNCHER" << WSLAUNCHER_EOF
+#!/usr/bin/env bash
+# Launch Token-Jet TUI on the Jetson via SSH (key-based auth).
+# If you see a password prompt, run: ssh-copy-id ${JETSON}
+exec ssh -o StrictHostKeyChecking=no -t ${JETSON} "PATH=\$HOME/.local/bin:\$PATH token-jet-tui \$*"
+WSLAUNCHER_EOF
+    chmod +x "$WS_LAUNCHER"
+fi
 echo "Workstation launcher: ${WS_LAUNCHER}"
 
-# Remind about PATH
 if ! echo "$PATH" | tr ':' '\n' | grep -q "^${WS_BIN_DIR}$"; then
     echo ""
     echo "  NOTE: Add ~/bin to your PATH to run 'token-jet-tui' directly:"
@@ -280,13 +325,20 @@ if ! echo "$PATH" | tr ':' '\n' | grep -q "^${WS_BIN_DIR}$"; then
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Eval scripts
+# Eval scripts (optional — skipped if not present in repo)
 # ─────────────────────────────────────────────────────────────────────────────
-echo "Deploying eval scripts..."
-_ssh "mkdir -p ~/token-jet/eval"
-cat "${REPO_ROOT}/eval/coding-eval.py" | _pipe_to "~/token-jet/eval/coding-eval.py"
-cat "${REPO_ROOT}/eval/it-eval.py"     | _pipe_to "~/token-jet/eval/it-eval.py"
-echo "  eval scripts: OK"
+EVAL_DIR="${REPO_ROOT}/eval"
+if [[ -d "$EVAL_DIR" ]] && compgen -G "${EVAL_DIR}/*.py" > /dev/null 2>&1; then
+    echo "Deploying eval scripts..."
+    _ssh "mkdir -p ~/token-jet/eval"
+    for f in "${EVAL_DIR}"/*.py; do
+        name="$(basename "$f")"
+        cat "$f" | _pipe_to "~/token-jet/eval/${name}"
+        echo "  ${name}: OK"
+    done
+else
+    echo "Eval scripts: not found in repo, skipping."
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Verify
@@ -295,7 +347,7 @@ echo ""
 echo "Verifying installation..."
 _ssh "
     echo -n 'jetson-infer: '
-    ~/bin/jetson-infer --help 2>&1 | head -1 || echo 'OK (help not shown)'
+    ~/bin/jetson-infer --help 2>&1 | head -1 || echo 'OK'
     echo -n 'token-jet-tui: '
     PYTHONPATH=~/.local/share/token-jet \
         ~/.local/share/token-jet/venv/bin/python3 -c \
@@ -320,5 +372,11 @@ echo ""
 echo "From this workstation:"
 echo "  token-jet-tui              # SSH to Jetson and launch TUI"
 echo ""
-echo "To uninstall later:"
-echo "  ./scripts/install.sh --uninstall ${JETSON_IP}"
+echo "To upgrade later:"
+echo "  ./scripts/install.sh ${JETSON_IP} --upgrade --user ${JETSON_USER}"
+echo ""
+echo "To pull latest from GitHub and upgrade in one step:"
+echo "  ./scripts/install.sh ${JETSON_IP} --self-update --user ${JETSON_USER}"
+echo ""
+echo "To uninstall:"
+echo "  ./scripts/install.sh ${JETSON_IP} --uninstall --user ${JETSON_USER}"
