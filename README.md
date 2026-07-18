@@ -53,7 +53,16 @@ Log into the Jetson (directly at a keyboard, or over SSH from any machine) and r
 curl -sL https://raw.githubusercontent.com/o3willard-AI/Token-Jet/main/scripts/install-local.sh | bash
 ```
 
-**What happens next** (the script runs unattended — expect 20–30 minutes total):
+> **Do not add `sudo`** to the curl command. The script calls `sudo` itself only for the two steps that need it (`apt` package install and enabling user lingering). Running the whole thing as root would install everything under `/root/` and break the paths.
+
+> **Recommended: set performance mode first** (one-time, survives reboots):
+> ```bash
+> sudo nvpmodel -m 0    # MAXN — full performance mode
+> sudo jetson_clocks    # lock CPU/GPU clocks at maximum frequency
+> ```
+> Without this the Jetson may throttle clocks and you'll see 20–30% lower token throughput. Run these once before or after install — order doesn't matter.
+
+**What happens next** (the script runs unattended — expect 30–45 minutes total):
 
 1. Clones this repo to `~/Token-Jet`
 2. Installs `cmake` and `build-essential` if missing
