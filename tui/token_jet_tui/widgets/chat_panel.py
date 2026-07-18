@@ -179,7 +179,26 @@ class ChatPanel(Container):
         self._chat_input = self.query_one(ChatInput)
         self._chat_log = self.query_one("#chat-log", RichLog)
         self._chat_status = self.query_one("#chat-status", Static)
+        self._show_welcome_if_first_run()
         log.debug("ChatPanel mounted")
+
+    def _show_welcome_if_first_run(self) -> None:
+        from pathlib import Path
+        model_dir = Path(self._store.config.model_dir).expanduser()
+        if not any(model_dir.glob("*.gguf")):
+            self._chat_log.write("[bold yellow]Welcome to Token-Jet![/bold yellow]")
+            self._chat_log.write("")
+            self._chat_log.write("No models downloaded yet. To get started:")
+            self._chat_log.write(
+                "  [bold]Ctrl+D[/bold]  →  open the model browser and download a model"
+            )
+            self._chat_log.write(
+                "  [bold]Ctrl+S[/bold]  →  load and start the model once downloaded"
+            )
+            self._chat_log.write("")
+            self._chat_log.write(
+                "[dim]Recommended: MiniCPM5-1B-Thinking — 1.1 GB, 31 t/s[/dim]"
+            )
 
     def send_message(self) -> None:
         log.debug("send_message called")

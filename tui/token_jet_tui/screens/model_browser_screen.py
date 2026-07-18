@@ -338,10 +338,10 @@ class ModelBrowserScreen(ModalScreen):
         if p.done:
             mb = p.total_bytes / (1024 * 1024)
             self.query_one("#dl-progress").update(
-                f"[green]Done! {mb:.0f} MB — model ready[/green]"
+                f"[green]Done! {mb:.0f} MB saved to ~/models/[/green]"
             )
             self.query_one("#browser-status").update(
-                "Model saved to ~/models/  — Esc to close"
+                "Press Esc to close, then Ctrl+S to load and start this model"
             )
             self._finish_download()
             return
