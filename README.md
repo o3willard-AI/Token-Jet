@@ -2,21 +2,37 @@
 
 **Run a local LLM on your NVIDIA Jetson and control it from your workstation.**
 
-Token-Jet deploys [llama.cpp](https://github.com/ggml-org/llama.cpp) to your Jetson Orin Nano and gives you a full terminal dashboard (TUI) on your workstation to download models, switch between them, chat, and monitor performance — all from one keyboard-driven interface.
+Token-Jet deploys [llama.cpp](https://github.com/ggml-org/llama.cpp) to your Jetson Orin Nano and gives you a full terminal dashboard (TUI) to download models, switch between them, chat, and monitor performance — all from one keyboard-driven interface.
 
 ---
 
 ## Requirements
 
-- **Jetson:** NVIDIA Jetson Orin Nano 8 GB, Ubuntu 22.04 or 24.04, llama.cpp built with CUDA
-- **Workstation:** macOS or Linux, Python 3.10+, SSH access to the Jetson
-- **Optional:** `sshpass` on the workstation for password-based auth (otherwise use SSH keys)
+- **Jetson:** NVIDIA Jetson Orin Nano 8 GB, Ubuntu 22.04 or 24.04 (JetPack 6.x), llama.cpp built with CUDA
+- **curl and git** are included in the default JetPack image; if for some reason they are missing: `sudo apt install -y curl git`
 
 ---
 
 ## Install
 
-Clone the repo on your **workstation**, then run the installer:
+### Option 1 — On the Jetson directly (recommended)
+
+Log into the Jetson (directly or over SSH) and run the one-liner:
+
+```bash
+curl -sL https://raw.githubusercontent.com/o3willard-AI/Token-Jet/main/scripts/install-local.sh | bash
+```
+
+This clones the repo to `~/Token-Jet`, installs the TUI into a Python venv, deploys `jetson-infer`, and creates a `token-jet` launcher.  After it finishes:
+
+```bash
+source ~/.bashrc
+token-jet
+```
+
+### Option 2 — From a Mac, Linux, or Windows (WSL) workstation
+
+Clone the repo on your **workstation**, then point the installer at your Jetson's IP:
 
 ```bash
 git clone https://github.com/o3willard-AI/Token-Jet.git
@@ -24,7 +40,12 @@ cd Token-Jet
 ./scripts/install.sh <jetson-ip>
 ```
 
-The installer will prompt for your Jetson SSH password. It copies `jetson-infer` and related files to the Jetson, installs the TUI locally, and creates a desktop launcher named `token-jet`.
+The installer SSHs into the Jetson to deploy everything remotely, then creates a local `token-jet-tui` launcher on your workstation that opens the TUI over SSH.
+
+**Supported platforms for the workstation installer:**
+- macOS
+- Linux
+- Windows with WSL 2
 
 **Options:**
 
@@ -50,15 +71,15 @@ ssh-copy-id ubuntu@<jetson-ip>
 
 ## First Run
 
-1. **Launch the TUI** from your workstation:
+1. **Launch the TUI:**
 
    ```bash
-   token-jet
-   # or: cd Token-Jet && python3 -m token_jet_tui
+   token-jet        # if installed on the Jetson directly
+   token-jet-tui    # if installed from a workstation
    ```
 
 2. **Download a model** — press `Ctrl+D` to open the model browser.  
-   Select a model from the curated list and press `Enter` to browse its GGUF files, then `Enter` again to start downloading. The Bonsai-8B is a great first pick if you want the highest quality; MiniCPM5-1B is the fastest.
+   Select a model from the curated list and press `Enter` to browse its GGUF files, then `Enter` again to start downloading. MiniCPM5-1B is the fastest starter; Bonsai-8B is the highest quality.
 
 3. **Switch to the downloaded model** — press `Ctrl+S`, select the model, press `Enter`.  
    The dashboard stops any running server and starts the new one. A status line shows progress.
@@ -151,11 +172,23 @@ jetson-infer install                  # Install systemd service (auto-start on b
 
 ## Update / Uninstall
 
+**If installed on the Jetson directly:**
+
+```bash
+# Update (pulls latest from GitHub, preserves config and models)
+~/Token-Jet/scripts/install-local.sh --upgrade
+
+# Remove (models in ~/models/ and config are not deleted)
+~/Token-Jet/scripts/install-local.sh --uninstall
+```
+
+**If installed from a workstation:**
+
 ```bash
 # Pull latest and upgrade (preserves downloaded models and config)
 ./scripts/install.sh <jetson-ip> --self-update
 
-# Remove everything from the Jetson (models in ~/models/ are not deleted)
+# Remove everything from the Jetson
 ./scripts/install.sh <jetson-ip> --uninstall
 ```
 
@@ -167,10 +200,11 @@ jetson-infer install                  # Install systemd service (auto-start on b
 Token-Jet/
 ├── jetson-infer              # Inference server utility (runs on the Jetson)
 ├── jetson-infer.service      # Systemd service file
-├── tui/                      # Workstation terminal dashboard (Textual)
+├── tui/                      # Terminal dashboard (Textual)
 │   └── token_jet_tui/
 ├── scripts/
-│   └── install.sh            # One-command install / upgrade / uninstall
+│   ├── install-local.sh      # Install directly on the Jetson (recommended)
+│   └── install.sh            # Install remotely from a workstation
 ├── eval/
 │   ├── coding-eval.py        # 5-task coding benchmark
 │   └── it-eval.py            # 5-scenario IT troubleshooting test
