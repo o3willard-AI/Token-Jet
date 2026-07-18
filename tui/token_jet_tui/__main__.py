@@ -5,6 +5,12 @@ from __future__ import annotations
 import sys
 import urllib.request
 
+from token_jet_tui.tui_logging import setup_logging
+setup_logging()
+
+import logging
+log = logging.getLogger(__name__)
+
 from token_jet_tui.config import load_config
 
 

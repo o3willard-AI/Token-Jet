@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+from textual import events
 from textual.screen import ModalScreen
 from textual.widgets import Static, ListView, ListItem, Input
 from textual.containers import Container
@@ -9,6 +12,15 @@ from textual import work
 
 from token_jet_tui.store import RootStore, DownloadProgress
 from token_jet_tui import downloader
+
+log = logging.getLogger(__name__)
+
+
+class _SilentListView(ListView):
+    """ListView with Enter suppressed — parent Screen handles selection."""
+
+    def action_select_cursor(self) -> None:
+        pass
 
 
 class ModelBrowserScreen(ModalScreen):
@@ -65,17 +77,25 @@ class ModelBrowserScreen(ModalScreen):
     def compose(self):
         with Container(id="browser-dialog"):
             yield Static("Model Browser — Search Hugging Face", id="browser-title")
-            yield Input(placeholder='Search: e.g. "bartowski qwen"  or  "org/repo-id"', id="search-input")
-            yield ListView(id="result-list")
+            yield Input(
+                placeholder='Search: e.g. "bartowski qwen"  or  "org/repo-id"',
+                id="search-input",
+            )
+            yield _SilentListView(id="result-list")
             yield Static("", id="browser-status")
             yield Static("", id="dl-progress")
-            yield Static("Enter: select   Esc: back/cancel", id="browser-hint")
+            yield Static(
+                "Type a query and press Enter to search",
+                id="browser-hint",
+            )
 
     def on_mount(self) -> None:
         self.query_one("#search-input").focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         query = event.value.strip()
+        log.debug("ModelBrowserScreen: input submitted %r (downloading=%s)",
+                  query, self._downloading)
         if not query or self._downloading:
             return
         if "/" in query:
@@ -85,22 +105,25 @@ class ModelBrowserScreen(ModalScreen):
 
     # ── Search ────────────────────────────────────────────────────────────────
 
-    @work(thread=True)
+    @work(thread=True, name="browser_search", exit_on_error=False)
     def _do_search(self, query: str) -> None:
+        log.debug("_do_search: %r", query)
         self.app.call_from_thread(
             lambda: self.query_one("#browser-status").update(f"Searching for '{query}'...")
         )
         try:
             results = downloader.search_hf_models(query)
             self._repos = results
+            log.debug("_do_search: %d results", len(results))
             self.app.call_from_thread(self._populate_repos)
-        except Exception as e:
+        except Exception:
+            log.exception("_do_search: failed")
             self.app.call_from_thread(
-                lambda msg=str(e): self.query_one("#browser-status").update(f"Search error: {msg}")
+                lambda: self.query_one("#browser-status").update("Search failed — check network")
             )
 
     def _populate_repos(self) -> None:
-        lv = self.query_one("#result-list", ListView)
+        lv = self.query_one("#result-list", _SilentListView)
         lv.clear()
         if not self._repos:
             self.query_one("#browser-status").update("No results — try a different query")
@@ -111,14 +134,16 @@ class ModelBrowserScreen(ModalScreen):
             lv.append(ListItem(Static(f"{r['id']}  ↓{dl_str}")))
         self._mode = "search"
         self.query_one("#browser-status").update(
-            f"{len(self._repos)} repos found — Enter to browse files"
+            f"{len(self._repos)} repos found"
         )
-        self.query_one("#browser-hint").update("Enter: browse files   Esc: cancel")
+        self.query_one("#browser-hint").update("↑↓ to navigate · Enter: browse files · Esc: cancel")
+        lv.focus()
 
     # ── File listing ──────────────────────────────────────────────────────────
 
-    @work(thread=True)
+    @work(thread=True, name="browser_files", exit_on_error=False)
     def _load_repo_files(self, repo_id: str) -> None:
+        log.debug("_load_repo_files: %r", repo_id)
         self._selected_repo = repo_id
         self.app.call_from_thread(
             lambda: self.query_one("#browser-status").update(f"Loading files from {repo_id}...")
@@ -126,59 +151,52 @@ class ModelBrowserScreen(ModalScreen):
         try:
             files = downloader.fetch_gguf_files(repo_id)
             self._files = files
+            log.debug("_load_repo_files: %d files", len(files))
             self.app.call_from_thread(self._populate_files)
-        except Exception as e:
+        except Exception:
+            log.exception("_load_repo_files: failed")
             self.app.call_from_thread(
-                lambda msg=str(e): self.query_one("#browser-status").update(f"Error: {msg}")
+                lambda: self.query_one("#browser-status").update(f"Error loading {repo_id}")
             )
 
     def _populate_files(self) -> None:
-        lv = self.query_one("#result-list", ListView)
+        lv = self.query_one("#result-list", _SilentListView)
         lv.clear()
         if not self._files:
             self.query_one("#browser-status").update("No GGUF files found in this repo")
             return
         for f in self._files:
             size_gb = f["size"] / (1024 ** 3) if f["size"] else 0
-            size_str = f"{size_gb:.1f} GB" if size_gb >= 0.1 else f"{f['size'] // 1024 // 1024} MB"
+            size_str = (
+                f"{size_gb:.1f} GB" if size_gb >= 0.1
+                else f"{f['size'] // 1024 // 1024} MB"
+            )
             lv.append(ListItem(Static(f"{f['name']}  ({size_str})")))
         self._mode = "files"
         self.query_one("#browser-status").update(
             f"{len(self._files)} GGUF files in {self._selected_repo}"
         )
-        self.query_one("#browser-hint").update("Enter: download   Esc: back to search results")
-
-    # ── Selection ─────────────────────────────────────────────────────────────
-
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        if self._downloading:
-            return
-        lv = self.query_one("#result-list", ListView)
-        idx = lv.index
-        if idx is None:
-            return
-        if self._mode == "search" and idx < len(self._repos):
-            self._load_repo_files(self._repos[idx]["id"])
-        elif self._mode == "files" and idx < len(self._files):
-            self._begin_download(self._files[idx]["name"])
+        self.query_one("#browser-hint").update("↑↓ to navigate · Enter: download · Esc: back")
+        lv.focus()
 
     # ── Download ──────────────────────────────────────────────────────────────
 
     def _begin_download(self, filename: str) -> None:
+        log.debug("_begin_download: %r", filename)
         self._downloading = True
         self._store.download_progress.watch(self._progress_watcher)
         self.query_one("#browser-status").update(f"Starting: {filename}")
-        self.query_one("#browser-hint").update("Downloading... Esc to cancel")
+        self.query_one("#browser-hint").update("Downloading… Esc to cancel")
         self._run_download(filename)
 
-    @work(thread=True)
+    @work(thread=True, name="browser_download", exit_on_error=False)
     def _run_download(self, filename: str) -> None:
         try:
             downloader.stream_download(
                 self._selected_repo, filename, self._store.config.model_dir
             )
         except Exception:
-            pass  # error is written to store.download_progress
+            log.exception("_run_download: failed")
 
     def _on_progress(self, progress: DownloadProgress | None) -> None:
         if progress is None:
@@ -186,7 +204,7 @@ class ModelBrowserScreen(ModalScreen):
         try:
             self.app.call_from_thread(self._render_progress, progress)
         except Exception:
-            pass
+            log.exception("_on_progress: call_from_thread failed")
 
     def _render_progress(self, p: DownloadProgress) -> None:
         if not self.is_mounted:
@@ -201,8 +219,12 @@ class ModelBrowserScreen(ModalScreen):
             return
         if p.done:
             mb = p.total_bytes / (1024 * 1024)
-            self.query_one("#dl-progress").update(f"[green]Done! {mb:.0f} MB — model ready[/green]")
-            self.query_one("#browser-status").update("Model saved to ~/models/  — Esc to close")
+            self.query_one("#dl-progress").update(
+                f"[green]Done! {mb:.0f} MB — model ready[/green]"
+            )
+            self.query_one("#browser-status").update(
+                "Model saved to ~/models/  — Esc to close"
+            )
             self._finish_download()
             return
 
@@ -221,12 +243,28 @@ class ModelBrowserScreen(ModalScreen):
 
     # ── Keyboard ──────────────────────────────────────────────────────────────
 
-    def on_key(self, event) -> None:
+    def on_key(self, event: events.Key) -> None:
+        log.debug("ModelBrowserScreen.on_key: key=%r mode=%s downloading=%s",
+                  event.key, self._mode, self._downloading)
         if event.key == "escape":
             if self._downloading:
                 self._store.cancel_download()
             elif self._mode == "files":
                 self._mode = "search"
                 self._populate_repos()
+                self.query_one("#search-input").focus()
             else:
                 self.dismiss(None)
+        elif event.key == "enter" and not self._downloading:
+            try:
+                lv = self.query_one("#result-list", _SilentListView)
+            except Exception:
+                return
+            idx = lv.index
+            log.debug("ModelBrowserScreen Enter: mode=%s idx=%s", self._mode, idx)
+            if idx is None:
+                return
+            if self._mode == "search" and idx < len(self._repos):
+                self._load_repo_files(self._repos[idx]["id"])
+            elif self._mode == "files" and idx < len(self._files):
+                self._begin_download(self._files[idx]["name"])

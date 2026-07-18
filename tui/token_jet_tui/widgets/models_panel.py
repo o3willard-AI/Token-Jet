@@ -7,6 +7,7 @@ import json
 import os
 import urllib.request
 
+from textual import work
 from textual.widgets import Static
 from textual.containers import Container
 
@@ -54,16 +55,22 @@ class ModelsPanel(Container):
 
     def on_mount(self) -> None:
         self._store.download_progress.watch(self._on_download_progress)
-        self.set_interval(5, self._refresh)
+        self.set_interval(5, self._schedule_refresh)
 
     def on_unmount(self) -> None:
         self._store.download_progress.unwatch(self._on_download_progress)
 
-    def _refresh(self) -> None:
+    def _schedule_refresh(self) -> None:
+        self._refresh_worker()
+
+    @work(thread=True, exit_on_error=False)
+    def _refresh_worker(self) -> None:
+        """Fetch data in background thread, then post results to the event loop."""
         host = self._store.config.server_host
         port = self._store.config.server_port
         model_dir = self._store.config.model_dir
 
+        # --- blocking I/O in thread ---
         try:
             resp = json.loads(
                 urllib.request.urlopen(
@@ -74,8 +81,8 @@ class ModelsPanel(Container):
             if data:
                 model = data[0]
                 meta = model.get("meta", {})
-                self._active_name = os.path.basename(model["id"])
-                short = self._active_name.replace(".gguf", "")
+                active_name = os.path.basename(model.get("id", ""))
+                short = active_name.replace(".gguf", "")
                 size_gb = meta.get("size", 0) / (1024 ** 3)
                 params_b = meta.get("n_params", 0) / 1e9
                 ctx = meta.get("n_ctx", "?")
@@ -85,23 +92,31 @@ class ModelsPanel(Container):
                     f"{params_b:.1f}B params  |  ctx {ctx}  |  {ftype}"
                 )
             else:
-                self._active_name = None
+                active_name = None
                 info = "  No model loaded — use Ctrl+S to load one"
         except Exception:
-            self._active_name = None
+            active_name = None
             info = "  Server unreachable"
 
-        self.query_one("#active-model-info").update(info)
-
         ggufs = sorted(glob.glob(os.path.join(model_dir, "*.gguf")))
-        lines = []
+        standby_lines = []
         for g in ggufs:
             name = os.path.basename(g)
             base = name.replace(".gguf", "")
             size_gb = os.path.getsize(g) / (1024 ** 3)
-            if name != self._active_name:
-                lines.append(f"  {base}  ({size_gb:.1f} GB)")
-        self.query_one("#standby-models").update("\n".join(lines) if lines else "  None")
+            if name != active_name:
+                standby_lines.append(f"  {base}  ({size_gb:.1f} GB)")
+        standby = "\n".join(standby_lines) if standby_lines else "  None"
+
+        # --- UI updates on event loop ---
+        self._active_name = active_name
+
+        def _update(info=info, standby=standby):
+            if self.is_mounted:
+                self.query_one("#active-model-info").update(info)
+                self.query_one("#standby-models").update(standby)
+
+        self.app.call_from_thread(_update)
 
     def _on_download_progress(self, progress: DownloadProgress | None) -> None:
         try:

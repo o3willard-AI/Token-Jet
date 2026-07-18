@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import subprocess
 
+from textual import work
 from textual.widgets import Static
 from textual.containers import Container
 
@@ -30,30 +31,38 @@ class JetsonPanel(Container):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._store = RootStore()
-        self._cpu_prev: tuple[int, int] | None = None  # (idle, total)
+        self._cpu_prev: tuple[int, int] | None = None
 
     def compose(self):
         yield Static("JETSON STATUS", classes="panel-title")
         yield Static("Loading...", id="jetson-stats")
 
     def on_mount(self) -> None:
-        self.set_interval(3, self._refresh)
+        self.set_interval(3, self._schedule_refresh)
 
-    def _refresh(self) -> None:
+    def _schedule_refresh(self) -> None:
+        self._refresh_worker()
+
+    @work(thread=True, exit_on_error=False)
+    def _refresh_worker(self) -> None:
+        """Run all blocking reads in a background thread."""
         try:
             ram_used, ram_total = self._read_ram()
             temp = self._read_temp()
             cpu_pct = self._read_cpu()
             gpu_pct = self._read_gpu()
-
-            self.query_one("#jetson-stats").update(
+            line = (
                 f"  RAM: {ram_used} / {ram_total} MB  |  "
                 f"CPU: {cpu_pct}%  |  "
                 f"GPU: {gpu_pct}%  |  "
                 f"Temp: {temp:.0f}°C"
             )
         except Exception as e:
-            self.query_one("#jetson-stats").update(f"  Error: {e}")
+            line = f"  Error: {e}"
+
+        self.app.call_from_thread(
+            lambda l=line: self.query_one("#jetson-stats").update(l)
+        )
 
     def _read_ram(self) -> tuple[int, int]:
         with open("/proc/meminfo") as f:
@@ -89,11 +98,14 @@ class JetsonPanel(Container):
 
     def _read_gpu(self) -> int:
         try:
-            result = subprocess.run(
-                ["tegrastats", "--interval", "100", "--count", "1"],
-                capture_output=True, text=True, timeout=2,
+            proc = subprocess.Popen(
+                ["tegrastats", "--interval", "250"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
             )
-            m = re.search(r"GR3D_FREQ\s+(\d+)%", result.stdout)
+            line = proc.stdout.readline()
+            proc.kill()
+            proc.wait()
+            m = re.search(r"GR3D_FREQ\s+(\d+)%", line)
             return int(m.group(1)) if m else 0
         except Exception:
             return 0
