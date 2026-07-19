@@ -258,19 +258,12 @@ _build_llama() {
     echo "  Disk freed."
 }
 
-# ── Build llama.cpp (standard — used by MiniCPM5 and Qwen3.5) ───────────────
+# ── Build llama.cpp (used by all models) ─────────────────────────────────────
 _build_llama \
     "llama.cpp" \
     "https://github.com/ggml-org/llama.cpp" \
     "${HOME}/llama.cpp" \
     ""
-
-# ── Build llama.cpp-prism (PrismML fork — required for Ternary-Bonsai-8B) ───
-_build_llama \
-    "llama.cpp-prism" \
-    "https://github.com/PrismML-Eng/llama.cpp" \
-    "${HOME}/llama.cpp-prism" \
-    "prism"
 
 echo ""
 

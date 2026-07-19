@@ -122,20 +122,11 @@ def _resolve_model_path(model_arg) -> str:
 
 
 def _select_server_bin(model_path: str) -> str:
-    """Choose standard or prism llama-server based on the model filename.
+    """Return the llama-server binary path for the given model.
 
     config.toml stores llama_cpp_bin as a directory (build/bin).
     Always append the binary name here so we return an executable path.
     """
-    name = os.path.basename(model_path).lower()
-    if any(kw in name for kw in ("bonsai", "ternary", "prism")):
-        prism_dir = os.path.expanduser(
-            _cfg("llama_cpp_prism_bin", str(_HOME / "llama.cpp-prism/build/bin"))
-        )
-        prism_bin = os.path.join(prism_dir, "llama-server")
-        if os.path.isfile(prism_bin) and os.access(prism_bin, os.X_OK):
-            return prism_bin
-        print(f"Warning: prism binary not found at {prism_bin}, falling back to standard build")
     bin_dir = os.path.expanduser(
         _cfg("llama_cpp_bin", str(_HOME / "llama.cpp/build/bin"))
     )
@@ -189,10 +180,10 @@ MODELS = {
     "8B": {
         "name": "Ternary-Bonsai-8B",
         "path": str(_HOME / "models/Ternary-Bonsai-8B-Q2_0.gguf"),
-        "server_bin": str(_HOME / "llama.cpp-prism/build/bin/llama-server"),
+        "server_bin": str(_HOME / "llama.cpp/build/bin/llama-server"),
         "size_gb": 2.03,
         "speed_ts": 8.4,
-        "description": "Highest accuracy. 1.58-bit ternary. Handles complex code the others miss. 16K context.",
+        "description": "Highest accuracy. Ternary-trained 8B, Q2_0 quant. Handles complex code the others miss. 16K context.",
         "n_layers": 32,
         "n_kv_heads": 4,
         "head_dim": 128,

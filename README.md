@@ -32,9 +32,8 @@ The install script handles all of this automatically — you don't need to do it
 
 | What | Where it lands |
 |------|---------------|
-| `cmake`, `build-essential` | System packages (via `apt`) |
-| llama.cpp (standard build) | `~/llama.cpp/` |
-| llama.cpp-prism fork | `~/llama.cpp-prism/` (needed for Ternary-Bonsai-8B) |
+| `cmake`, `build-essential`, `cuda-nvcc`, `libcublas-dev` | System packages (via `apt`) |
+| llama.cpp (CUDA build) | `~/llama.cpp/` |
 | Token-Jet TUI | `~/.local/share/token-jet/` (isolated Python venv) |
 | `jetson-infer` utility | `~/bin/jetson-infer` |
 | `token-jet` launcher | `~/.local/bin/token-jet` |
@@ -67,9 +66,8 @@ curl -sL https://raw.githubusercontent.com/o3willard-AI/Token-Jet/main/scripts/i
 1. Clones this repo to `~/Token-Jet`
 2. Installs `cmake` and `build-essential` if missing
 3. Detects your CUDA version and architecture automatically
-4. Clones and builds `llama.cpp` from source *(~10–15 min)*
-5. Clones and builds the `llama.cpp-prism` fork from source *(~10–15 min)*
-6. Installs the TUI into an isolated Python venv
+4. Clones and builds `llama.cpp` from source with CUDA support *(~15–25 min)*
+5. Installs the TUI into an isolated Python venv
 7. Deploys `jetson-infer` and creates the `token-jet` launcher
 8. Writes a default config and enables the systemd service
 
@@ -158,7 +156,7 @@ After evaluating ten models across coding tasks, IT troubleshooting scenarios, a
 |-------|------|:-----:|:-----------:|----------|
 | **MiniCPM5-1B** | 1.1 GB | 31 t/s | 16K | Interactive use, low latency, generous context |
 | **Qwen3.5-4B-Coder** | 2.5 GB | 20 t/s | 8K | Solid all-rounder, good speed at moderate context |
-| **Ternary-Bonsai-8B** | 2.0 GB | 8 t/s | 16K | Complex code generation, highest accuracy |
+| **Ternary-Bonsai-8B** | 2.0 GB | 8 t/s | 16K | Complex code generation, highest accuracy (Q2_0) |
 
 All three are available directly from the TUI model browser (`Ctrl+D`) under the **Verified** tag.
 
@@ -172,7 +170,7 @@ The pragmatic middle choice. More than twice as fast as the Bonsai-8B with solid
 
 ### Ternary-Bonsai-8B (Q2_0)
 
-The accuracy leader. At 1.58-bit ternary quantization, it consistently handles complex coding challenges that trip up the others. The cost is speed — 8 t/s. Best for offline or batch work where quality matters more than responsiveness. Requires the `llama.cpp-prism` build (installed automatically).
+The accuracy leader. Ternary-trained weights (values constrained to {−1, 0, +1} during training) packed into standard Q2_0 format — consistently handles complex coding challenges that trip up the others. The cost is speed — 8 t/s. Best for offline or batch work where quality matters more than responsiveness.
 
 ### Trade-offs at a glance
 
