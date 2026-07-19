@@ -4,11 +4,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=sblanken
-WorkingDirectory=/home/sblanken
-Environment=LD_LIBRARY_PATH=/usr/local/cuda-13.2/targets/sbsa-linux/lib
-ExecStart=/home/sblanken/bin/jetson-infer start --model MiniCPM5 --watchdog
-ExecStop=/home/sblanken/bin/jetson-infer stop
+WorkingDirectory=%h
+Environment=LD_LIBRARY_PATH=/usr/local/cuda/targets/sbsa-linux/lib
+ExecStart=%h/bin/jetson-infer start --watchdog
+ExecStop=%h/bin/jetson-infer stop
 Restart=on-failure
 RestartSec=10
 StandardOutput=append:/tmp/jetson-infer-service.log
@@ -18,4 +17,4 @@ StandardError=append:/tmp/jetson-infer-service.log
 TimeoutStartSec=900
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

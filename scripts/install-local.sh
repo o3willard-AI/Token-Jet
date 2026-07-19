@@ -103,21 +103,32 @@ if [[ "$PY_MAJOR" -lt 3 ]] || { [[ "$PY_MAJOR" -eq 3 ]] && [[ "$PY_MINOR" -lt 9 
 fi
 echo "  Python ${PY_MAJOR}.${PY_MINOR}: OK"
 
-# Build tools + python3-venv (Ubuntu 22.04 strips ensurepip from system Python)
+# Build tools + python3-venv (Ubuntu strips ensurepip from system Python)
+# cuda-nvcc: JetPack ships CUDA runtime but NOT the compiler by default.
+# Installing it here ensures llama.cpp gets GPU support compiled in.
 MISSING_PKGS=()
 command -v cmake &>/dev/null || MISSING_PKGS+=("cmake")
 command -v gcc   &>/dev/null || MISSING_PKGS+=("build-essential")
 python3 -m venv --help &>/dev/null || MISSING_PKGS+=("python3-venv")
+# Detect the versioned cuda-nvcc package available in the L4T repo
+if ! command -v nvcc &>/dev/null && ! ls /usr/local/cuda*/bin/nvcc &>/dev/null 2>&1; then
+    CUDA_NVCC_PKG=$(apt-cache search '^cuda-nvcc-' 2>/dev/null | awk '{print $1}' | sort -V | tail -1)
+    if [[ -n "$CUDA_NVCC_PKG" ]]; then
+        MISSING_PKGS+=("$CUDA_NVCC_PKG")
+    else
+        MISSING_PKGS+=("cuda-nvcc")
+    fi
+fi
 if [[ ${#MISSING_PKGS[@]} -gt 0 ]]; then
     echo "  Installing build tools: ${MISSING_PKGS[*]}..."
     sudo apt-get update -qq
-    sudo apt-get install -y -qq cmake build-essential python3-venv
+    sudo apt-get install -y -qq "${MISSING_PKGS[@]}"
 fi
 echo "  cmake $(cmake --version | head -1 | awk '{print $3}'): OK"
 echo "  python3-venv: OK"
 
-# CUDA — JetPack puts nvcc at /usr/local/cuda/bin which is NOT on the default PATH.
-# Check the known location directly before falling back to a PATH search.
+# CUDA — JetPack puts nvcc at /usr/local/cuda-X.Y/bin/nvcc.
+# Check known locations directly before falling back to a PATH search.
 NVCC_BIN=""
 for candidate in /usr/local/cuda/bin/nvcc /usr/local/cuda-*/bin/nvcc; do
     if [[ -x "$candidate" ]]; then
@@ -125,7 +136,7 @@ for candidate in /usr/local/cuda/bin/nvcc /usr/local/cuda-*/bin/nvcc; do
         break
     fi
 done
-command -v nvcc &>/dev/null && NVCC_BIN="nvcc"
+command -v nvcc &>/dev/null && NVCC_BIN="$(command -v nvcc)"
 
 if [[ -n "$NVCC_BIN" ]]; then
     CUDA_VER=$("$NVCC_BIN" --version 2>/dev/null | grep -oP 'release \K[0-9]+\.[0-9]+' || echo "?")
@@ -141,10 +152,12 @@ if [[ -n "$NVCC_BIN" ]]; then
         echo "  Added ${NVCC_DIR} to ~/.bashrc"
     fi
 else
-    echo "  WARNING: nvcc not found — llama.cpp will build CPU-only (very slow for inference)"
-    echo "    Expected at: /usr/local/cuda/bin/nvcc"
-    echo "    Verify JetPack CUDA is installed: dpkg -l | grep cuda"
-    CUDA_FLAGS=""
+    echo ""
+    echo "  ERROR: nvcc not found — cannot build with GPU support." >&2
+    echo "  Install the CUDA toolkit and re-run:" >&2
+    echo "    sudo apt-get install cuda-nvcc" >&2
+    echo "  Then re-run this installer." >&2
+    exit 1
 fi
 
 # Detect CUDA library path for LD_LIBRARY_PATH in config/launcher
