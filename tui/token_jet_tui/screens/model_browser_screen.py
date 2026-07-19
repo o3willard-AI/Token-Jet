@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from textual import events
 from textual.screen import ModalScreen
@@ -112,6 +113,54 @@ _RECOMMENDED: list[tuple[str, str, str, str, str]] = [
         "Larger thinking model — best quality",
     ),
 ]
+
+
+# ── File compatibility checker ────────────────────────────────────────────────
+# Jetson Orin Nano 8 GB has unified CPU/GPU memory.
+# After OS overhead (~600 MB) and minimum KV cache (~512 MB), usable model
+# space is roughly 6.5 GB. Below 4 GB leaves comfortable room for 16K context.
+_MAX_SIZE_GB  = 6.5   # hard block — no KV headroom at all
+_WARN_SIZE_GB = 4.0   # soft warning — context will be severely limited
+
+def _check_file(name: str, size_bytes: int) -> tuple[str, str]:
+    """Return (status, message) for a GGUF file before download.
+
+    status is one of: "ok", "warn", "block"
+    """
+    n = name.lower()
+    size_gb = size_bytes / (1024 ** 3) if size_bytes else 0
+
+    # ── Hard blocks ───────────────────────────────────────────────────────────
+    # Custom quantization types unknown to llama.cpp (e.g. PrismML PQ2_0)
+    if re.search(r'[-_]pq\d', n):
+        return "block", "PQ format not supported by llama.cpp — choose Q2_0 instead"
+
+    # F32 full precision — always too large to be useful
+    if re.search(r'[-_]f32', n):
+        return "block", "F32 is too large for inference — choose Q4_0 or smaller"
+
+    # F16 at meaningful size — no KV cache left after loading
+    if re.search(r'[-_]f16', n) and size_gb > 3.0:
+        return "block", f"F16 at {size_gb:.1f} GB leaves no room for KV cache"
+
+    # File simply too large for the 8 GB unified memory budget
+    if size_gb > _MAX_SIZE_GB:
+        return "block", f"{size_gb:.1f} GB — too large, no KV cache headroom on 8 GB Jetson"
+
+    # ── Soft warnings ─────────────────────────────────────────────────────────
+    # Large file — will load but context window will be very limited
+    if size_gb > _WARN_SIZE_GB:
+        return "warn", f"{size_gb:.1f} GB — limited KV cache, expect short context only"
+
+    # IQ1 quantization — loads but quality is often barely coherent
+    if re.search(r'[-_]iq1[_-]', n):
+        return "warn", "IQ1 is extremely aggressive — quality may be poor"
+
+    # F16 on a tiny model — works, but Q8_0 is equally good at half the size
+    if re.search(r'[-_]f16', n):
+        return "warn", "F16 full precision — Q8_0 gives the same quality at half the size"
+
+    return "ok", ""
 
 
 class _SilentListView(ListView):
@@ -285,7 +334,14 @@ class ModelBrowserScreen(ModalScreen):
                 f"{size_gb:.1f} GB" if size_gb >= 0.1
                 else f"{f['size'] // 1024 // 1024} MB"
             )
-            lv.append(ListItem(Static(f"{f['name']}  ({size_str})")))
+            status, _ = _check_file(f["name"], f["size"] or 0)
+            if status == "block":
+                badge = "  [red][✗ incompatible][/red]"
+            elif status == "warn":
+                badge = "  [yellow][! limited][/yellow]"
+            else:
+                badge = ""
+            lv.append(ListItem(Static(f"{f['name']}  ({size_str}){badge}")))
         prev = self._mode
         self._prev_mode = prev
         self._mode = "files"
@@ -293,7 +349,7 @@ class ModelBrowserScreen(ModalScreen):
             f"{len(self._files)} GGUF files in {self._selected_repo}"
         )
         self.query_one("#browser-hint").update(
-            "↑↓ navigate · Enter: download · Esc: back"
+            "↑↓ navigate · Enter: download · [red]✗[/red]=incompatible · [yellow]![/yellow]=limited · Esc: back"
         )
         lv.focus()
 
@@ -395,4 +451,15 @@ class ModelBrowserScreen(ModalScreen):
                 self._prev_mode = "search"
                 self._load_repo_files(self._repos[idx]["id"])
             elif self._mode == "files" and idx < len(self._files):
-                self._begin_download(self._files[idx]["name"])
+                f = self._files[idx]
+                status, reason = _check_file(f["name"], f["size"] or 0)
+                if status == "block":
+                    self.query_one("#browser-status").update(
+                        f"[red]✗ Cannot download: {reason}[/red]"
+                    )
+                else:
+                    if status == "warn":
+                        self.query_one("#browser-status").update(
+                            f"[yellow]⚠ {reason} — downloading anyway[/yellow]"
+                        )
+                    self._begin_download(f["name"])
