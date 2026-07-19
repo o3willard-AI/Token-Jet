@@ -104,21 +104,27 @@ fi
 echo "  Python ${PY_MAJOR}.${PY_MINOR}: OK"
 
 # Build tools + python3-venv (Ubuntu strips ensurepip from system Python)
-# cuda-nvcc: JetPack ships CUDA runtime but NOT the compiler by default.
-# Installing it here ensures llama.cpp gets GPU support compiled in.
+# cuda-nvcc + libcublas-dev: JetPack ships CUDA runtime but NOT the compiler
+# or cuBLAS dev headers by default — both are required to build llama.cpp with
+# GPU support. They are versioned packages in the L4T repo (e.g. -13-2).
 MISSING_PKGS=()
 command -v cmake &>/dev/null || MISSING_PKGS+=("cmake")
 command -v gcc   &>/dev/null || MISSING_PKGS+=("build-essential")
 python3 -m venv --help &>/dev/null || MISSING_PKGS+=("python3-venv")
-# Detect the versioned cuda-nvcc package available in the L4T repo
-if ! command -v nvcc &>/dev/null && ! ls /usr/local/cuda*/bin/nvcc &>/dev/null 2>&1; then
-    CUDA_NVCC_PKG=$(apt-cache search '^cuda-nvcc-' 2>/dev/null | awk '{print $1}' | sort -V | tail -1)
-    if [[ -n "$CUDA_NVCC_PKG" ]]; then
-        MISSING_PKGS+=("$CUDA_NVCC_PKG")
-    else
-        MISSING_PKGS+=("cuda-nvcc")
-    fi
+
+# Detect versioned CUDA packages from the L4T repo
+_latest_pkg() { apt-cache search "^${1}-" 2>/dev/null | awk '{print $1}' | sort -V | tail -1; }
+
+if ! command -v nvcc &>/dev/null && ! compgen -G "/usr/local/cuda*/bin/nvcc" > /dev/null 2>&1; then
+    PKG=$(_latest_pkg "cuda-nvcc")
+    MISSING_PKGS+=("${PKG:-cuda-nvcc}")
 fi
+if ! find /usr/local/cuda* /usr/lib -name 'libcublas_static.a' -o -name 'libcublas.so' \
+        2>/dev/null | grep -q .; then
+    PKG=$(_latest_pkg "libcublas-dev")
+    MISSING_PKGS+=("${PKG:-libcublas-dev}")
+fi
+
 if [[ ${#MISSING_PKGS[@]} -gt 0 ]]; then
     echo "  Installing build tools: ${MISSING_PKGS[*]}..."
     sudo apt-get update -qq
