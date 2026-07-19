@@ -110,7 +110,10 @@ echo "  Python ${PY_MAJOR}.${PY_MINOR}: OK"
 MISSING_PKGS=()
 command -v cmake &>/dev/null || MISSING_PKGS+=("cmake")
 command -v gcc   &>/dev/null || MISSING_PKGS+=("build-essential")
-python3 -m venv --help &>/dev/null || MISSING_PKGS+=("python3-venv")
+# On Ubuntu 24.04, python3-venv alone doesn't provide ensurepip for Python 3.12.
+# The version-specific package (e.g. python3.12-venv) is required.
+PY_VENV_PKG="python${PY_MAJOR}.${PY_MINOR}-venv"
+python3 -m ensurepip --version &>/dev/null || MISSING_PKGS+=("$PY_VENV_PKG")
 
 # Detect versioned CUDA packages from the L4T repo
 _latest_pkg() { apt-cache search "^${1}-" 2>/dev/null | awk '{print $1}' | sort -V | tail -1; }
@@ -295,7 +298,8 @@ if [[ "$MODE" == "upgrade" ]]; then
     echo "  TUI upgraded OK"
 else
     mkdir -p "$INSTALL_BASE" "$BIN_DIR"
-    if [[ ! -d "${INSTALL_BASE}/venv" ]]; then
+    if [[ ! -x "${INSTALL_BASE}/venv/bin/pip" ]]; then
+        rm -rf "${INSTALL_BASE}/venv"
         python3 -m venv "${INSTALL_BASE}/venv"
         echo "  Created venv"
     fi
