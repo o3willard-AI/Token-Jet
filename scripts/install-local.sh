@@ -83,10 +83,10 @@ if [[ "$MODE" == "uninstall" ]]; then
     rm -f   ~/bin/jetson-infer ~/bin/jetson-infer.service
     echo ""
     echo "Uninstalled."
-    echo "  llama.cpp preserved at: ~/llama.cpp  ~/llama.cpp-prism"
+    echo "  llama.cpp preserved at: ~/llama.cpp"
     echo "  Config preserved at:    $CONFIG_DIR"
     echo "  Models preserved at:    ~/models/"
-    echo "  Remove manually if desired: rm -rf $CONFIG_DIR ~/models/ ~/llama.cpp ~/llama.cpp-prism"
+    echo "  Remove manually if desired: rm -rf $CONFIG_DIR ~/models/ ~/llama.cpp"
     exit 0
 fi
 
@@ -122,8 +122,9 @@ if ! command -v nvcc &>/dev/null && ! compgen -G "/usr/local/cuda*/bin/nvcc" > /
     PKG=$(_latest_pkg "cuda-nvcc")
     MISSING_PKGS+=("${PKG:-cuda-nvcc}")
 fi
-if ! find /usr/local/cuda* /usr/lib -name 'libcublas_static.a' -o -name 'libcublas.so' \
-        2>/dev/null | grep -q .; then
+# Check for cuBLAS dev headers specifically — the runtime package may ship libcublas.so
+# already, but CMake's CUDA::cublas target requires cublas_v2.h from the -dev package.
+if ! find /usr/local/cuda*/include -name 'cublas_v2.h' 2>/dev/null | grep -q .; then
     PKG=$(_latest_pkg "libcublas-dev")
     MISSING_PKGS+=("${PKG:-libcublas-dev}")
 fi
@@ -324,7 +325,6 @@ if [[ "$MODE" == "install" ]]; then
 # Token-Jet configuration
 model_dir            = "/home/${JETSON_USER}/models"
 llama_cpp_bin        = "/home/${JETSON_USER}/llama.cpp/build/bin"
-llama_cpp_prism_bin  = "/home/${JETSON_USER}/llama.cpp-prism/build/bin"
 default_model        = ""
 server_host          = "127.0.0.1"
 server_port          = 1234
