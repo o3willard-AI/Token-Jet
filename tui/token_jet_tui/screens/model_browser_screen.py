@@ -36,8 +36,8 @@ _RECOMMENDED: list[tuple[str, str, str, str, str]] = [
     (
         "prism-ml/Ternary-Bonsai-8B-gguf",
         "Ternary-Bonsai-8B",
-        "~2.0 GB", "Verified",
-        "Highest quality — ternary-trained 8B, Q2_0 quant, 8.4 t/s",
+        "~2.2 GB", "Experimental",
+        "Ternary-trained 8B — Q2_0 has corrupt HF upload; try Q2_0_g64",
     ),
     # ── Community picks ───────────────────────────────────────────────────────
     (
