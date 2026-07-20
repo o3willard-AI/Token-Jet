@@ -355,19 +355,20 @@ class ModelBrowserScreen(ModalScreen):
 
     # ── Download ──────────────────────────────────────────────────────────────
 
-    def _begin_download(self, filename: str) -> None:
-        log.debug("_begin_download: %r", filename)
+    def _begin_download(self, filename: str, sha256: str | None = None) -> None:
+        log.debug("_begin_download: %r sha256=%s", filename, bool(sha256))
         self._downloading = True
         self._store.download_progress.watch(self._progress_watcher)
         self.query_one("#browser-status").update(f"Starting: {filename}")
         self.query_one("#browser-hint").update("Downloading… Esc to cancel")
-        self._run_download(filename)
+        self._run_download(filename, sha256)
 
     @work(thread=True, name="browser_download", exit_on_error=False)
-    def _run_download(self, filename: str) -> None:
+    def _run_download(self, filename: str, sha256: str | None = None) -> None:
         try:
             downloader.stream_download(
-                self._selected_repo, filename, self._store.config.model_dir
+                self._selected_repo, filename, self._store.config.model_dir,
+                expected_sha256=sha256,
             )
         except Exception:
             log.exception("_run_download: failed")
@@ -390,6 +391,12 @@ class ModelBrowserScreen(ModalScreen):
         if p.cancelled:
             self.query_one("#dl-progress").update("[yellow]Cancelled[/yellow]")
             self._finish_download()
+            return
+        if p.verifying:
+            mb = p.total_bytes / (1024 * 1024)
+            self.query_one("#dl-progress").update(
+                f"[cyan]Verifying SHA-256 checksum… ({mb:.0f} MB)[/cyan]"
+            )
             return
         if p.done:
             mb = p.total_bytes / (1024 * 1024)
@@ -462,4 +469,4 @@ class ModelBrowserScreen(ModalScreen):
                         self.query_one("#browser-status").update(
                             f"[yellow]⚠ {reason} — downloading anyway[/yellow]"
                         )
-                    self._begin_download(f["name"])
+                    self._begin_download(f["name"], f.get("sha256"))

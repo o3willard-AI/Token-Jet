@@ -53,6 +53,7 @@ class DownloadProgress:
     speed_bps: float
     elapsed: float
     cancelled: bool = False
+    verifying: bool = False
     error: Optional[str] = None
 
     @property
@@ -69,6 +70,7 @@ class DownloadProgress:
     def done(self) -> bool:
         return (
             not self.cancelled
+            and not self.verifying
             and self.error is None
             and self.total_bytes > 0
             and self.bytes_received >= self.total_bytes
