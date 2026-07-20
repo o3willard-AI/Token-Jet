@@ -188,9 +188,12 @@ echo "  CUDA libs: $CUDA_LIB_PATH"
 # Both run now so the llama.cpp build and all subsequent inference benefit immediately.
 echo "Setting performance mode..."
 if command -v nvpmodel &>/dev/null; then
-    sudo nvpmodel -m 0 2>/dev/null \
-        && echo "  nvpmodel: MAXN (mode 0) set — persists across reboots" \
-        || echo "  nvpmodel: could not set mode 0 (non-fatal)"
+    # </dev/null: prevents nvpmodel's interactive reboot prompt from consuming
+    # the script pipe when run via curl | bash. &>/dev/null: suppresses the
+    # verbose WARNING/ERROR lines that nvpmodel writes to stdout.
+    sudo nvpmodel -m 0 </dev/null &>/dev/null \
+        && echo "  nvpmodel: MAXN (mode 0) set" \
+        || echo "  nvpmodel: mode 0 will apply after reboot (non-fatal)"
 else
     echo "  nvpmodel: not found, skipping"
 fi
