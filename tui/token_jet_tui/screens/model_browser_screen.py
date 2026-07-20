@@ -235,6 +235,7 @@ class ModelBrowserScreen(ModalScreen):
             yield Static("", id="browser-hint")
 
     def on_mount(self) -> None:
+        downloader.cleanup_partial_downloads(self._store.config.model_dir)
         self._populate_recommended()
 
     # ── Recommended list ──────────────────────────────────────────────────────

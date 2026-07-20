@@ -67,6 +67,15 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def cleanup_partial_downloads(model_dir: str) -> None:
+    """Delete any leftover .gguf.part files from previously interrupted downloads."""
+    for p in Path(model_dir).glob("*.gguf.part"):
+        try:
+            p.unlink()
+        except OSError:
+            pass
+
+
 def stream_download(
     repo_id: str,
     filename: str,
@@ -75,15 +84,18 @@ def stream_download(
 ) -> None:
     """Stream a GGUF file from HF to dest_dir, writing progress to RootStore.
 
-    Validates that the received byte count matches Content-Length, then verifies
-    the SHA-256 hash against expected_sha256 (from HuggingFace LFS metadata) when
-    available. Deletes the destination file and raises on any failure.
+    Downloads to a .part staging file first. Only renames to the final .gguf
+    path after size validation and SHA-256 verification pass. This ensures that
+    a hard kill of the TUI mid-download never leaves a corrupt .gguf on disk —
+    only a .part file that cleanup_partial_downloads() will remove on next start.
     """
     store = RootStore()
     store.reset_download_cancel()
 
     dest = Path(dest_dir) / Path(filename).name
+    part = dest.with_suffix(".gguf.part")
     Path(dest_dir).mkdir(parents=True, exist_ok=True)
+    part.unlink(missing_ok=True)
 
     url = (
         f"https://huggingface.co/{urllib.parse.quote(repo_id, safe='/')}"
@@ -99,10 +111,10 @@ def stream_download(
         last_update = start
         chunk_size = 512 * 1024  # 512 KB
 
-        with open(dest, "wb") as f:
+        with open(part, "wb") as f:
             while True:
                 if store.download_cancelled:
-                    dest.unlink(missing_ok=True)
+                    part.unlink(missing_ok=True)
                     store.download_progress.value = DownloadProgress(
                         filename=filename, bytes_received=received,
                         total_bytes=total, speed_bps=0,
@@ -131,7 +143,7 @@ def stream_download(
 
         # Validate completeness before touching the file further.
         if total > 0 and received < total:
-            dest.unlink(missing_ok=True)
+            part.unlink(missing_ok=True)
             err = f"Incomplete download: received {received:,} of {total:,} bytes"
             store.download_progress.value = DownloadProgress(
                 filename=filename, bytes_received=received, total_bytes=total,
@@ -145,9 +157,9 @@ def stream_download(
                 filename=filename, bytes_received=received, total_bytes=total,
                 speed_bps=speed, elapsed=elapsed, verifying=True,
             )
-            actual = _sha256_file(dest)
+            actual = _sha256_file(part)
             if actual != expected_sha256.lower():
-                dest.unlink(missing_ok=True)
+                part.unlink(missing_ok=True)
                 err = "Checksum mismatch — file may be corrupt or tampered with"
                 store.download_progress.value = DownloadProgress(
                     filename=filename, bytes_received=received, total_bytes=total,
@@ -160,6 +172,9 @@ def stream_download(
         else:
             verified = ""
 
+        # All checks passed — atomically promote the staging file.
+        part.rename(dest)
+
         store.download_progress.value = DownloadProgress(
             filename=filename, bytes_received=received,
             total_bytes=total,
@@ -169,7 +184,7 @@ def stream_download(
         )
 
     except Exception as e:
-        dest.unlink(missing_ok=True)
+        part.unlink(missing_ok=True)
         # Only overwrite progress if no specific error was already recorded above.
         current = store.download_progress.value
         if not (current and current.error):
