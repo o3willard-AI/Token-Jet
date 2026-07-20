@@ -154,12 +154,18 @@ def stream_download(
                     speed_bps=0, elapsed=elapsed, error=err,
                 )
                 raise RuntimeError(err)
+            verified = "size+sha256"
+        elif total > 0:
+            verified = "size"
+        else:
+            verified = ""
 
         store.download_progress.value = DownloadProgress(
             filename=filename, bytes_received=received,
             total_bytes=total,
             speed_bps=speed,
             elapsed=elapsed,
+            verified=verified,
         )
 
     except Exception as e:

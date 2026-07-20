@@ -400,8 +400,14 @@ class ModelBrowserScreen(ModalScreen):
             return
         if p.done:
             mb = p.total_bytes / (1024 * 1024)
+            if p.verified == "size+sha256":
+                check = "  [green]✓ size + SHA-256 verified[/green]"
+            elif p.verified == "size":
+                check = "  [yellow]✓ size verified (no checksum available)[/yellow]"
+            else:
+                check = "  [yellow]⚠ no integrity check available[/yellow]"
             self.query_one("#dl-progress").update(
-                f"[green]Done! {mb:.0f} MB saved to ~/models/[/green]"
+                f"[green]Done! {mb:.0f} MB saved to ~/models/[/green]{check}"
             )
             self.query_one("#browser-status").update(
                 "Press Esc to close, then Ctrl+S to load and start this model"

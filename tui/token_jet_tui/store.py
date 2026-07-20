@@ -54,6 +54,7 @@ class DownloadProgress:
     elapsed: float
     cancelled: bool = False
     verifying: bool = False
+    verified: str = ""   # "size+sha256", "size", or "" (none available)
     error: Optional[str] = None
 
     @property
