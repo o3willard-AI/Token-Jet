@@ -8,6 +8,7 @@ export default function (pi: ExtensionAPI) {
     name: "Jetson (llama.cpp)",
     baseUrl: `${SERVER_BASE}/v1`,
     api: "openai-completions",
+    apiKey: "none",  // pi requires auth on every provider; llama-server ignores this header
 
     // Static fallback used when the inference server isn't running yet.
     // refreshModels() below replaces this at runtime with live values.
