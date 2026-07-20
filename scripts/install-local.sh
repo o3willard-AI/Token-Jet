@@ -355,15 +355,42 @@ if ! $NODE_OK; then
 fi
 echo "  Node.js $(node --version): OK"
 
-# Install pi and the web-search skill package.
-# --ignore-scripts matches the upstream install recommendation.
+# npm global installs default to /usr/lib/node_modules which needs root.
+# Redirect to a user-local prefix so installs never need sudo.
+NPM_GLOBAL="${HOME}/.npm-global"
+if [[ "$(npm config get prefix 2>/dev/null)" != "$NPM_GLOBAL" ]]; then
+    mkdir -p "$NPM_GLOBAL"
+    npm config set prefix "$NPM_GLOBAL"
+fi
+if ! grep -q '.npm-global/bin' ~/.bashrc 2>/dev/null; then
+    echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> ~/.bashrc
+fi
+export PATH="${NPM_GLOBAL}/bin:${PATH}"
+
+# Install pi. --ignore-scripts matches upstream install recommendation.
 npm install -g --ignore-scripts @earendil-works/pi-coding-agent 2>/dev/null \
     && echo "  pi $(pi --version 2>/dev/null || echo installed): OK" \
-    || echo "  WARNING: pi install failed — check npm output"
+    || echo "  WARNING: pi install failed — check npm output above"
 
-npm install -g --ignore-scripts @earendil-works/pi-skills 2>/dev/null \
-    && echo "  pi-skills: OK" \
-    || echo "  WARNING: pi-skills install failed (web-search unavailable)"
+# Clone pi-skills for web search. The brave-search skill is not on npm;
+# it lives at https://github.com/badlogic/pi-skills and must be cloned locally.
+# Brave Search has a free API tier — key needed for web search to work:
+#   https://brave.com/search/api/  →  set BRAVE_API_KEY in ~/.bashrc
+PI_SKILLS_DIR="${HOME}/pi-skills"
+if [[ ! -d "${PI_SKILLS_DIR}/.git" ]]; then
+    echo "  Cloning pi-skills..."
+    git clone --depth 1 https://github.com/badlogic/pi-skills "$PI_SKILLS_DIR"
+elif [[ "$MODE" == "upgrade" ]]; then
+    git -C "$PI_SKILLS_DIR" pull --ff-only 2>/dev/null || true
+fi
+if [[ -d "${PI_SKILLS_DIR}/brave-search" ]]; then
+    npm --prefix "${PI_SKILLS_DIR}/brave-search" install --ignore-scripts \
+        2>/dev/null || true
+    echo "  brave-search skill: ~/pi-skills/brave-search"
+    echo "  NOTE: web search needs a free Brave API key"
+    echo "        https://brave.com/search/api/"
+    echo "        Add to ~/.bashrc: export BRAVE_API_KEY=\"your-key\""
+fi
 
 # Deploy provider extension — always overwrite so repo changes land on upgrade.
 mkdir -p ~/.pi/agent/extensions/
