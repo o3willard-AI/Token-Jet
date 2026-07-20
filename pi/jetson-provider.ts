@@ -10,7 +10,7 @@ const DEFAULT_CTX = 16384;
 const FALLBACK_MODEL = {
   id: "local",
   name: "Jetson Local Model",
-  api: "openai" as const,
+  api: "openai-completions" as const,
   input: ["text"] as string[],
   reasoning: false,
   contextWindow: DEFAULT_CTX,
@@ -22,7 +22,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerProvider("jetson-local", {
     name: "Jetson (llama.cpp)",
     baseUrl: `${SERVER_BASE}/v1`,
-    api: "openai",
+    api: "openai-completions",
     // Auth credential is also written to ~/.pi/agent/auth.json by the
     // install script. apiKey here is a belt-and-suspenders backup.
     apiKey: "none",
@@ -72,7 +72,7 @@ export default function (pi: ExtensionAPI) {
           {
             id: modelId,
             name: modelName,
-            api: "openai",
+            api: "openai-completions",
             input: ["text"],
             reasoning: false,
             contextWindow: n_ctx,
