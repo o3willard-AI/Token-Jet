@@ -78,6 +78,10 @@ if [[ "$MODE" == "uninstall" ]]; then
     systemctl --user disable jetson-infer 2>/dev/null || true
     rm -f ~/.config/systemd/user/jetson-infer.service
     systemctl --user daemon-reload 2>/dev/null || true
+    sudo systemctl stop    jetson-clocks-boot 2>/dev/null || true
+    sudo systemctl disable jetson-clocks-boot 2>/dev/null || true
+    sudo rm -f /etc/systemd/system/jetson-clocks-boot.service
+    sudo systemctl daemon-reload 2>/dev/null || true
     rm -rf  "$INSTALL_BASE"
     rm -f   "$BIN_DIR/token-jet" "$BIN_DIR/token-jet-tui"
     rm -f   ~/bin/jetson-infer ~/bin/jetson-infer.service
@@ -177,6 +181,24 @@ if [[ -z "$CUDA_LIB_PATH" ]]; then
     CUDA_LIB_PATH="/usr/local/cuda/targets/sbsa-linux/lib"
 fi
 echo "  CUDA libs: $CUDA_LIB_PATH"
+
+# ── Performance mode ──────────────────────────────────────────────────────────
+# nvpmodel -m 0 selects MAXN (full performance) and persists across reboots.
+# jetson-clocks-boot.service locks CPU/GPU at max frequency on every boot.
+# Both run now so the llama.cpp build and all subsequent inference benefit immediately.
+echo "Setting performance mode..."
+if command -v nvpmodel &>/dev/null; then
+    sudo nvpmodel -m 0 2>/dev/null \
+        && echo "  nvpmodel: MAXN (mode 0) set — persists across reboots" \
+        || echo "  nvpmodel: could not set mode 0 (non-fatal)"
+else
+    echo "  nvpmodel: not found, skipping"
+fi
+sudo cp "${REPO_ROOT}/jetson-clocks-boot.service" /etc/systemd/system/jetson-clocks-boot.service
+sudo systemctl daemon-reload
+sudo systemctl enable jetson-clocks-boot 2>/dev/null || true
+sudo systemctl start  jetson-clocks-boot 2>/dev/null || true
+echo "  jetson-clocks: enabled + active (locks clocks at max on every boot)"
 
 # ── llama.cpp build helper ────────────────────────────────────────────────────
 # Cap at 3 jobs: each nvcc invocation can spike to ~1.5 GB on Jetson's unified
@@ -338,7 +360,7 @@ TOML_EOF
     fi
 fi
 
-# ── Systemd service (install only) ───────────────────────────────────────────
+# ── Systemd user service (install only) ──────────────────────────────────────
 if [[ "$MODE" == "install" ]]; then
     echo "Installing systemd service..."
     mkdir -p ~/.config/systemd/user/
@@ -348,6 +370,11 @@ if [[ "$MODE" == "install" ]]; then
     sudo loginctl enable-linger "$JETSON_USER" 2>/dev/null || true
     echo "  systemd service: enabled"
 fi
+
+# ── jetson-clocks service (install + upgrade) ─────────────────────────────────
+# Refresh the system service file on every install/upgrade so changes land.
+sudo cp "${REPO_ROOT}/jetson-clocks-boot.service" /etc/systemd/system/jetson-clocks-boot.service
+sudo systemctl daemon-reload 2>/dev/null || true
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
