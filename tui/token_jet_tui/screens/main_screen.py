@@ -1,8 +1,11 @@
 """Main dashboard screen — Jetson status, models, performance, and quick chat."""
 
+import json
 import logging
 import os
 import subprocess
+import urllib.request
+from pathlib import Path
 
 from textual.containers import Container
 from textual.screen import Screen
@@ -21,6 +24,31 @@ from token_jet_tui.screens.delete_model_screen import DeleteModelScreen
 
 log = logging.getLogger(__name__)
 
+_PI_SETTINGS = Path("~/.pi/agent/settings.json").expanduser()
+
+
+def _update_pi_config(host: str, port: int) -> str:
+    """Query the live llama-server and write the active model into pi's settings.json.
+
+    Returns the full 'provider/model-id' string that was written.
+    Raises on any failure so the caller can emit a soft warning.
+    """
+    url = f"http://{host}:{port}/v1/models"
+    with urllib.request.urlopen(url, timeout=5) as resp:
+        data = json.loads(resp.read())
+
+    model_id: str = data["data"][0]["id"]
+    pi_model = f"jetson-local/{model_id}"
+
+    if _PI_SETTINGS.exists():
+        settings = json.loads(_PI_SETTINGS.read_text())
+    else:
+        settings = {}
+
+    settings["model"] = pi_model
+    _PI_SETTINGS.parent.mkdir(parents=True, exist_ok=True)
+    _PI_SETTINGS.write_text(json.dumps(settings, indent=2) + "\n")
+    return pi_model
 
 
 class MainScreen(Screen):
@@ -136,6 +164,21 @@ class MainScreen(Screen):
                 self.app.call_from_thread(
                     lambda: self.notify(f"Switched to {model_name}", timeout=4)
                 )
+                try:
+                    pi_model = _update_pi_config(
+                        self._store.config.server_host,
+                        self._store.config.server_port,
+                    )
+                    log.debug("pi config updated: %s", pi_model)
+                except Exception as pi_err:
+                    log.warning("pi config update failed: %s", pi_err)
+                    self.app.call_from_thread(
+                        lambda msg=str(pi_err): self.notify(
+                            f"Warning: pi agent config not updated — {msg}",
+                            timeout=8,
+                            severity="warning",
+                        )
+                    )
             else:
                 log.error("switch failed: %s", err)
                 self.app.call_from_thread(
