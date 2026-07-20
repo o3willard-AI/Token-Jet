@@ -3,43 +3,50 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 const SERVER_BASE = "http://127.0.0.1:1234";
 const DEFAULT_CTX = 16384;
 
+// Returned when the server is unreachable or when pi requests a sync-only
+// refresh (allowNetwork: false). Must NOT be an empty array — pi evaluates
+// the return value with `arr ? use_it : keep_static`, and [] is truthy, so
+// returning [] wipes the static models list from the registration config.
+const FALLBACK_MODEL = {
+  id: "local",
+  name: "Jetson Local Model",
+  api: "openai-completions" as const,
+  reasoning: true,
+  contextWindow: DEFAULT_CTX,
+  maxTokens: DEFAULT_CTX,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+};
+
 export default function (pi: ExtensionAPI) {
   pi.registerProvider("jetson-local", {
     name: "Jetson (llama.cpp)",
     baseUrl: `${SERVER_BASE}/v1`,
     api: "openai-completions",
-    apiKey: "none",  // pi requires auth on every provider; llama-server ignores this header
+    // Auth credential is also written to ~/.pi/agent/auth.json by the
+    // install script. apiKey here is a belt-and-suspenders backup.
+    apiKey: "none",
 
-    // Static fallback used when the inference server isn't running yet.
-    // refreshModels() below replaces this at runtime with live values.
-    models: [
-      {
-        id: "local",
-        name: "Jetson Local Model",
-        api: "openai-completions",
-        reasoning: true,
-        contextWindow: DEFAULT_CTX,
-        maxTokens: DEFAULT_CTX,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      },
-    ],
+    // Static list — used on first load and when refreshModels is not yet called.
+    models: [FALLBACK_MODEL],
 
-    // Called each time pi starts (when allowNetwork is true).
-    // Queries the running llama-server for the actual loaded model name
-    // and the context window that jetson-infer calculated at startup
-    // (which varies by model and available RAM).
+    // Called each time pi starts. Must always return a non-empty array:
+    // returning [] (truthy) overwrites the static models list above.
     refreshModels: async (context) => {
-      if (!context.allowNetwork) return [];
+      if (!context.allowNetwork) {
+        // Sync-only pass — no network calls allowed. Return the fallback so
+        // the static list is not wiped before the real refresh runs.
+        return [FALLBACK_MODEL];
+      }
       try {
         // /v1/models: primary source for model ID and context window.
         // Newer llama-server versions expose meta.n_ctx here directly.
         const modelsResp = await fetch(`${SERVER_BASE}/v1/models`, {
           signal: context.signal,
         });
-        if (!modelsResp.ok) return [];
+        if (!modelsResp.ok) return [FALLBACK_MODEL];
         const modelsData = await modelsResp.json();
         const first = (modelsData.data ?? [])[0];
-        if (!first) return [];
+        if (!first) return [FALLBACK_MODEL];
 
         const modelId: string = first.id ?? "local";
         const modelName: string =
@@ -72,8 +79,9 @@ export default function (pi: ExtensionAPI) {
           },
         ];
       } catch {
-        // Server not running — pi falls back to the static models array above.
-        return [];
+        // Server not running — keep a usable model entry so pi doesn't
+        // show "No models available". Requests will fail at send time.
+        return [FALLBACK_MODEL];
       }
     },
   });

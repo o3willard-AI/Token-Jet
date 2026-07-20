@@ -395,6 +395,26 @@ else
     echo "  pi settings: preserved (already exists)"
 fi
 
+# Write the jetson-local API key into auth.json so pi's auth check always
+# passes for the local provider. pi requires every provider to have auth
+# configured; llama-server ignores the Bearer header since it has no key.
+# We merge rather than overwrite so existing cloud provider tokens survive.
+mkdir -p ~/.pi/agent/
+python3 - <<'PYEOF'
+import json, os, sys
+path = os.path.expanduser("~/.pi/agent/auth.json")
+try:
+    d = json.loads(open(path).read()) if os.path.exists(path) else {}
+except Exception:
+    d = {}
+if d.get("jetson-local", {}).get("key") != "none":
+    d["jetson-local"] = {"type": "api_key", "key": "none"}
+    open(path, "w").write(json.dumps(d, indent=2) + "\n")
+    print("  pi auth: jetson-local credential written to auth.json")
+else:
+    print("  pi auth: auth.json already configured")
+PYEOF
+
 # ── Default config (install only) ────────────────────────────────────────────
 if [[ "$MODE" == "install" ]]; then
     mkdir -p "$CONFIG_DIR"
