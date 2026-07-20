@@ -3,5 +3,5 @@
   "enableInstallTelemetry": false,
   "PI_SKIP_VERSION_CHECK": true,
   "extensions": ["~/.pi/agent/extensions/jetson-provider.ts"],
-  "skills": ["~/pi-skills/brave-search"]
+  "skills": ["~/Token-Jet/pi/ddg-search"]
 }

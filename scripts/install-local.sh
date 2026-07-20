@@ -372,25 +372,11 @@ npm install -g --ignore-scripts @earendil-works/pi-coding-agent 2>/dev/null \
     && echo "  pi $(pi --version 2>/dev/null || echo installed): OK" \
     || echo "  WARNING: pi install failed — check npm output above"
 
-# Clone pi-skills for web search. The brave-search skill is not on npm;
-# it lives at https://github.com/badlogic/pi-skills and must be cloned locally.
-# Brave Search has a free API tier — key needed for web search to work:
-#   https://brave.com/search/api/  →  set BRAVE_API_KEY in ~/.bashrc
-PI_SKILLS_DIR="${HOME}/pi-skills"
-if [[ ! -d "${PI_SKILLS_DIR}/.git" ]]; then
-    echo "  Cloning pi-skills..."
-    git clone --depth 1 https://github.com/badlogic/pi-skills "$PI_SKILLS_DIR"
-elif [[ "$MODE" == "upgrade" ]]; then
-    git -C "$PI_SKILLS_DIR" pull --ff-only 2>/dev/null || true
-fi
-if [[ -d "${PI_SKILLS_DIR}/brave-search" ]]; then
-    npm --prefix "${PI_SKILLS_DIR}/brave-search" install --ignore-scripts \
-        2>/dev/null || true
-    echo "  brave-search skill: ~/pi-skills/brave-search"
-    echo "  NOTE: web search needs a free Brave API key"
-    echo "        https://brave.com/search/api/"
-    echo "        Add to ~/.bashrc: export BRAVE_API_KEY=\"your-key\""
-fi
+# Install ddg-search skill dependencies (shipped in this repo — no clone needed,
+# no API key required). npm install is idempotent; safe on both install and upgrade.
+npm --prefix "${REPO_ROOT}/pi/ddg-search" install --ignore-scripts 2>/dev/null \
+    && echo "  ddg-search skill: ~/Token-Jet/pi/ddg-search (keyless web search)" \
+    || echo "  WARNING: ddg-search npm install failed"
 
 # Deploy provider extension — always overwrite so repo changes land on upgrade.
 mkdir -p ~/.pi/agent/extensions/
