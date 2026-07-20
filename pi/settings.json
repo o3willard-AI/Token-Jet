@@ -1,0 +1,7 @@
+{
+  "model": "jetson-local/local",
+  "enableInstallTelemetry": false,
+  "PI_SKIP_VERSION_CHECK": true,
+  "extensions": ["~/.pi/agent/extensions/jetson-provider.ts"],
+  "packages": ["@earendil-works/pi-skills"]
+}

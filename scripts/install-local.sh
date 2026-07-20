@@ -339,6 +339,46 @@ if ! grep -q '.local/bin' ~/.bashrc 2>/dev/null; then
     echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 fi
 
+# ── Pi coding agent ───────────────────────────────────────────────────────────
+# Pi requires Node.js 22+. Ubuntu 24.04's default repos ship Node 18, so we
+# add the NodeSource repo if a suitable version isn't already present.
+echo "Installing pi coding agent..."
+NODE_OK=false
+if command -v node &>/dev/null; then
+    NODE_MAJOR=$(node --version 2>/dev/null | grep -oP '(?<=v)\d+' || echo 0)
+    [[ "$NODE_MAJOR" -ge 22 ]] && NODE_OK=true
+fi
+if ! $NODE_OK; then
+    echo "  Installing Node.js 22 (via NodeSource)..."
+    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - 2>/dev/null
+    sudo apt-get install -y -qq nodejs
+fi
+echo "  Node.js $(node --version): OK"
+
+# Install pi and the web-search skill package.
+# --ignore-scripts matches the upstream install recommendation.
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent 2>/dev/null \
+    && echo "  pi $(pi --version 2>/dev/null || echo installed): OK" \
+    || echo "  WARNING: pi install failed — check npm output"
+
+npm install -g --ignore-scripts @earendil-works/pi-skills 2>/dev/null \
+    && echo "  pi-skills: OK" \
+    || echo "  WARNING: pi-skills install failed (web-search unavailable)"
+
+# Deploy provider extension — always overwrite so repo changes land on upgrade.
+mkdir -p ~/.pi/agent/extensions/
+cp "${REPO_ROOT}/pi/jetson-provider.ts" ~/.pi/agent/extensions/jetson-provider.ts
+echo "  jetson-provider: ~/.pi/agent/extensions/jetson-provider.ts"
+
+# Deploy default settings only on first install; preserve user customisations on upgrade.
+if [[ ! -f ~/.pi/agent/settings.json ]]; then
+    mkdir -p ~/.pi/agent/
+    cp "${REPO_ROOT}/pi/settings.json" ~/.pi/agent/settings.json
+    echo "  pi settings: ~/.pi/agent/settings.json"
+else
+    echo "  pi settings: preserved (already exists)"
+fi
+
 # ── Default config (install only) ────────────────────────────────────────────
 if [[ "$MODE" == "install" ]]; then
     mkdir -p "$CONFIG_DIR"
