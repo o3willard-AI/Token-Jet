@@ -3,5 +3,12 @@
   "enableInstallTelemetry": false,
   "PI_SKIP_VERSION_CHECK": true,
   "extensions": ["~/.pi/agent/extensions/jetson-provider.ts"],
-  "skills": ["~/Token-Jet/pi/ddg-search"]
+  "skills": ["~/Token-Jet/pi/ddg-search"],
+  "thinkingBudgets": {
+    "minimal": 256,
+    "low": 512,
+    "medium": 1024,
+    "high": 2048,
+    "xhigh": 4096
+  }
 }
