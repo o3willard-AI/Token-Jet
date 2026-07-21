@@ -1,2 +1,4 @@
 #!/bin/bash
-exec node /home/sblanken/Token-Jet/pi/ddg-search/content.js "$@"
+# Template — install.sh generates the real copy in /usr/local/bin/fetch-url
+# with the correct user home path substituted in at install time.
+exec node "$HOME/Token-Jet/pi/ddg-search/content.js" "$@"

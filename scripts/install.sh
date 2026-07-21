@@ -8,13 +8,21 @@
 #   ./scripts/install.sh <jetson-ip> --uninstall
 #
 # Options:
-#   --upgrade       Replace source files and reinstall; preserves user config
-#   --self-update   Pull latest from GitHub then run --upgrade automatically
-#   --uninstall     Remove TUI, jetson-infer, and systemd service
-#   --user USER     Jetson SSH username (default: ubuntu)
-#   --pass PASS     SSH password; omit to be prompted, or use --no-pass
-#   --no-pass       Use key-based SSH (no password required)
-#   -h, --help      Show this help
+#   --upgrade         Replace source files and reinstall; preserves user config
+#   --self-update     Pull latest from GitHub then run --upgrade automatically
+#   --uninstall       Remove TUI, jetson-infer, and systemd service
+#   --user USER       Jetson SSH username (default: ubuntu)
+#   --pass PASS       SSH password; omit to be prompted, or use --no-pass
+#   --no-pass         Use key-based SSH (no password required)
+#   --no-prism-build  Skip building the PrismML llama.cpp fork (Bonsai GPU support)
+#   -h, --help        Show this help
+#
+# The PrismML fork (https://github.com/PrismML-Eng/llama.cpp, branch pr/q2_0-cuda)
+# is built automatically on fresh install to enable GPU inference for Bonsai ternary
+# models (TYPE_42 quant). On --upgrade it is skipped if already built. Pass
+# --no-prism-build to skip it entirely (e.g. for CI or disk-constrained installs).
+# The build takes ~30 minutes. jetson-infer auto-routes any model with "bonsai"
+# in the filename to ~/llama.cpp-prism/build/bin/llama-server.
 #
 # Environment variable overrides (useful for CI / scripting):
 #   INSTALL_JETSON_IP    Jetson IP address
@@ -29,17 +37,19 @@ JETSON_USER="${INSTALL_JETSON_USER:-ubuntu}"
 JETSON_PASS="${INSTALL_JETSON_PASS:-}"
 MODE="install"
 USE_SSHPASS=true
+BUILD_PRISM=true
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --upgrade)     MODE="upgrade";     shift ;;
-        --self-update) MODE="self-update"; shift ;;
-        --uninstall)   MODE="uninstall";   shift ;;
-        --user)        JETSON_USER="$2";   shift 2 ;;
-        --pass)        JETSON_PASS="$2";   shift 2 ;;
-        --no-pass)     USE_SSHPASS=false;  shift ;;
+        --upgrade)          MODE="upgrade";     shift ;;
+        --self-update)      MODE="self-update"; shift ;;
+        --uninstall)        MODE="uninstall";   shift ;;
+        --user)             JETSON_USER="$2";   shift 2 ;;
+        --pass)             JETSON_PASS="$2";   shift 2 ;;
+        --no-pass)          USE_SSHPASS=false;  shift ;;
+        --no-prism-build)   BUILD_PRISM=false;  shift ;;
         -h|--help)
             sed -n '2,22p' "$0" | sed 's/^# //'
             exit 0 ;;
@@ -253,15 +263,59 @@ _ssh "
 # ─────────────────────────────────────────────────────────────────────────────
 # pi skill wrappers — install ddg-search and fetch-url to /usr/local/bin so
 # they are available in non-interactive shells (where ~/bin isn't in PATH).
+# Paths are generated dynamically so they work for any JETSON_USER.
 # ─────────────────────────────────────────────────────────────────────────────
 echo "Installing pi skill wrappers..."
-_ssh "
-    echo '101abn' | sudo -S cp ~/Token-Jet/pi/ddg-search/ddg-search /usr/local/bin/ddg-search
-    echo '101abn' | sudo -S cp ~/Token-Jet/pi/ddg-search/fetch-url  /usr/local/bin/fetch-url
-    echo '101abn' | sudo -S chmod +x /usr/local/bin/ddg-search /usr/local/bin/fetch-url
-"
+_ssh "echo '${JETSON_PASS}' | sudo -S bash -c '
+    printf \"#!/bin/bash\\nexec node /home/${JETSON_USER}/Token-Jet/pi/ddg-search/search.js \\\"\\\$@\\\"\\n\" \
+        > /usr/local/bin/ddg-search
+    printf \"#!/bin/bash\\nexec node /home/${JETSON_USER}/Token-Jet/pi/ddg-search/content.js \\\"\\\$@\\\"\\n\" \
+        > /usr/local/bin/fetch-url
+    chmod +x /usr/local/bin/ddg-search /usr/local/bin/fetch-url
+'"
 echo "  /usr/local/bin/ddg-search: OK"
 echo "  /usr/local/bin/fetch-url:  OK"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PrismML llama.cpp fork — required for GPU inference on Bonsai ternary models.
+#
+# Bonsai models use TYPE_41/TYPE_42 custom ternary quantization that has no
+# CUDA kernels in mainline llama.cpp. The PrismML fork (branch pr/q2_0-cuda)
+# adds those kernels, enabling 8+ t/s GPU inference vs ~3 t/s CPU fallback.
+#
+# jetson-infer auto-selects this binary for any model with "bonsai" in the
+# filename. If binary already exists (upgrade), the build is skipped.
+# Pass --no-prism-build to skip entirely.
+# ─────────────────────────────────────────────────────────────────────────────
+if $BUILD_PRISM; then
+    echo "Checking PrismML llama.cpp fork (Bonsai GPU support)..."
+    _ssh "
+        if [ -f ~/llama.cpp-prism/build/bin/llama-server ]; then
+            echo '  prism binary exists — skipping build'
+        else
+            echo '  Cloning PrismML fork (pr/q2_0-cuda branch)...'
+            git clone --branch pr/q2_0-cuda --depth 1 \
+                https://github.com/PrismML-Eng/llama.cpp \
+                ~/llama.cpp-prism 2>&1
+            echo '  Configuring with CUDA (SM 8.7 = Jetson Orin Ampere)...'
+            CUDACXX=/usr/local/cuda-13.2/bin/nvcc cmake \
+                -B ~/llama.cpp-prism/build \
+                -S ~/llama.cpp-prism \
+                -DGGML_CUDA=ON \
+                -DCMAKE_CUDA_ARCHITECTURES=87 \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DLLAMA_CURL=OFF \
+                2>&1
+            echo '  Building llama-server (~30 min on Jetson Orin Nano)...'
+            cmake --build ~/llama.cpp-prism/build -j\$(nproc) --target llama-server 2>&1
+            echo '  prism binary: built OK'
+        fi
+    "
+else
+    echo "PrismML fork build: skipped (--no-prism-build)"
+    echo "  Bonsai models will fall back to CPU until built manually."
+    echo "  To build later: cd ~/llama.cpp-prism && cmake --build build -j\$(nproc) --target llama-server"
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Default config (install only)
