@@ -1,7 +1,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { spawnSync } from "child_process";
+import { homedir } from "os";
 
 const SERVER_BASE = "http://127.0.0.1:1234";
 const DEFAULT_CTX = 16384;
+const SKILL_DIR = `${homedir()}/Token-Jet/pi/ddg-search`;
 
 // Returned when the server is unreachable or when pi requests a sync-only
 // refresh (allowNetwork: false). Must NOT be an empty array — pi evaluates
@@ -85,6 +89,80 @@ export default function (pi: ExtensionAPI) {
         // show "No models available". Requests will fail at send time.
         return [FALLBACK_MODEL];
       }
+    },
+  });
+
+  // ── web_search tool ────────────────────────────────────────────────────────
+  // Registered as a native tool so small models call it directly instead of
+  // needing to translate "run this bash command" into a bash tool invocation.
+  pi.registerTool({
+    name: "web_search",
+    label: "Web Search",
+    description:
+      "Search the web using DuckDuckGo. Returns titles, links, and snippets for each result. " +
+      "Use for any question requiring current information, facts, documentation, or news.",
+    promptSnippet: 'web_search(query="...") — search the web with DuckDuckGo, no API key needed',
+    parameters: Type.Object({
+      query: Type.String({ description: "Search query" }),
+      num_results: Type.Optional(
+        Type.Number({ description: "Number of results to return (default 5, max 25)", default: 5 })
+      ),
+      include_content: Type.Optional(
+        Type.Boolean({ description: "Fetch full readable page content for each result", default: false })
+      ),
+      freshness: Type.Optional(
+        Type.String({ description: "Time filter: pd=past day, pw=past week, pm=past month, py=past year" })
+      ),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      const args: string[] = [params.query];
+      if (params.num_results) args.push("-n", String(params.num_results));
+      if (params.include_content) args.push("--content");
+      if (params.freshness) args.push("--freshness", params.freshness);
+
+      const result = spawnSync("node", [`${SKILL_DIR}/search.js`, ...args], {
+        timeout: 30000,
+        encoding: "utf8",
+      });
+
+      const text =
+        result.stdout?.trim() ||
+        result.stderr?.trim() ||
+        "No results returned.";
+
+      return {
+        content: [{ type: "text" as const, text }],
+        details: {},
+      };
+    },
+  });
+
+  // ── fetch_url tool ─────────────────────────────────────────────────────────
+  pi.registerTool({
+    name: "fetch_url",
+    label: "Fetch URL",
+    description:
+      "Fetch the readable text content of any URL as markdown. " +
+      "Use when you have a specific URL and want to read its full content.",
+    promptSnippet: "fetch_url(url=\"https://...\") — read a webpage as markdown",
+    parameters: Type.Object({
+      url: Type.String({ description: "The URL to fetch" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      const result = spawnSync("node", [`${SKILL_DIR}/content.js`, params.url], {
+        timeout: 30000,
+        encoding: "utf8",
+      });
+
+      const text =
+        result.stdout?.trim() ||
+        result.stderr?.trim() ||
+        "Could not fetch URL.";
+
+      return {
+        content: [{ type: "text" as const, text }],
+        details: {},
+      };
     },
   });
 }
