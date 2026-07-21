@@ -348,7 +348,7 @@ if [[ "$MODE" == "install" ]]; then
         mkdir -p '${CONFIG_DIR}'
         if [[ ! -f '${CONFIG_DIR}/config.toml' ]]; then
             cat > '${CONFIG_DIR}/config.toml' << 'TOML_EOF'
-# Token-Jet configuration — edit paths to match your Jetson setup.
+# Token-Jet configuration
 model_dir          = \"/home/${JETSON_USER}/models\"
 llama_cpp_bin      = \"/home/${JETSON_USER}/llama.cpp/build/bin\"
 server_host        = \"127.0.0.1\"
@@ -356,7 +356,14 @@ server_port        = 1234
 ld_library_path    = \"/usr/local/cuda-13.2/targets/sbsa-linux/lib\"
 jetson_infer_bin   = \"/home/${JETSON_USER}/bin/jetson-infer\"
 hf_download_timeout = 300
-# reasoning_budget = 1024   # Max thinking tokens per request (0 = no cap)
+
+# Model to start when no --model flag is given. If unset, jetson-infer uses
+# the project-recommended model (currently Qwen3.5-4B-Coder) if downloaded,
+# then falls back to the first .gguf found in model_dir.
+# startup_model = \"/home/${JETSON_USER}/models/qwen3.5-4B-super-coder.Q4_0.gguf\"
+
+# Cap thinking tokens to control verbosity on reasoning models (0 = no cap).
+# reasoning_budget = 1024
 TOML_EOF
             echo 'Config written to ${CONFIG_DIR}/config.toml'
             echo 'Edit it to match your llama.cpp and model paths before first use.'

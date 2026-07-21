@@ -152,13 +152,13 @@ ssh-copy-id ubuntu@<jetson-ip>
    ```
 
 2. **Download a model** — press `Ctrl+D` to open the model browser.  
-   Select any model from the curated list and press `Enter` to see its GGUF files, then `Enter` again to start downloading. MiniCPM5-1B downloads in a few minutes and is the best starting point.
+   Select any model from the curated list and press `Enter` to see its GGUF files, then `Enter` again to start downloading. **Qwen3.5-4B-Coder** is the recommended starting point — reliable for both chat and agent/coding tasks.
 
 3. **Load the model** — press `Ctrl+S`, select the model you downloaded, press `Enter`.  
    A status line shows the server starting up. Takes 5–15 seconds.
 
 4. **Chat** — type in the input box at the bottom and press `Enter`.  
-   Thinking models (like MiniCPM5-1B) display their reasoning process before the answer.
+   Thinking models display their reasoning process before the answer.
 
 ---
 
@@ -182,34 +182,33 @@ ssh-copy-id ubuntu@<jetson-ip>
 
 After evaluating models across coding tasks, IT troubleshooting scenarios, and real-world agent usage on the Jetson Orin Nano 8 GB, we recommend these three. Assessments reflect July 2026 observations.
 
-| Model | Size | Speed | Max Context | Best For |
-|-------|------|:-----:|:-----------:|----------|
-| **MiniCPM5-1B** | 1.1 GB | 31 t/s | 32K | Interactive use, low latency, generous context |
-| **Qwen3.5-4B-Coder** | 2.5 GB | 20 t/s | 32K | Solid all-rounder, good speed and context |
-| **Ternary-Bonsai-8B** | 2.0 GB | 8 t/s | 16–20K | Complex code generation, highest accuracy |
+| Model | Size | Speed | Max Context | Agent/Coding | Best For |
+|-------|------|:-----:|:-----------:|:------------:|----------|
+| **Qwen3.5-4B-Coder** ⭐ | 2.5 GB | 20 t/s | 32K | ✅ | Recommended starting point — reliable for chat, coding, and agent tasks |
+| **Ternary-Bonsai-8B** | 2.0 GB | 8 t/s | 16–20K | ✅ | Maximum accuracy on complex code generation |
+| **MiniCPM5-1B** | 1.1 GB | 31 t/s | 32K | ❌ | Speed exploration and quick Q&A only |
 
-All three are available directly from the TUI model browser (`Ctrl+D`) under the **Verified** tag.
+All three are available directly from the TUI model browser (`Ctrl+D`).
 
-### MiniCPM5-1B (Q8_0)
+### Qwen3.5-4B-Coder (Q4_0) ⭐ Recommended
 
-The speed champion — over 30 tokens per second with a 32K context window at just 1.1 GB. Claude-distilled, so it inherits strong instruction-following and reasoning patterns. Ideal for interactive agents where latency matters.
-
-### Qwen3.5-4B-Coder (Q4_0)
-
-The pragmatic middle choice. More than twice as fast as the Bonsai-8B with solid code generation ability and a 32K context window. The Q4_0 quant keeps it under 2.5 GB while retaining good answer quality.
+The reliable all-rounder. Solid code generation, dependable multi-step agent behavior, and 32K context at 20 t/s. The Q4_0 quant keeps it under 2.5 GB. This is the model to start with and return to as a baseline when evaluating others.
 
 ### Ternary-Bonsai-8B (Q2_0)
 
-The accuracy leader. Ternary-trained weights (values constrained to {−1, 0, +1} during training) packed into standard Q2_0 format — consistently handles complex coding challenges that trip up the others. Requires the PrismML llama.cpp fork for GPU inference (installed automatically). The cost is speed — 8 t/s. Best for offline or batch work where quality matters more than responsiveness.
+The accuracy leader. Ternary-trained weights (values constrained to {−1, 0, +1} during training) packed into standard Q2_0 format — consistently handles complex coding challenges that trip up the others. Requires the PrismML llama.cpp fork for GPU inference (installed automatically). The cost is speed — 8 t/s. Best for batch or offline work where quality matters more than responsiveness.
+
+### MiniCPM5-1B (Q8_0)
+
+The fastest option at 31 t/s with a 1.1 GB footprint. Claude-distilled. Useful for exploring how fast a 1B model can run on Jetson hardware and for simple Q&A where latency is the priority. **Not suitable for agent or coding tasks** — 1B parameters is insufficient for reliable multi-step tool use.
 
 ### Trade-offs at a glance
 
 - **Speed:** MiniCPM5 (31 t/s) ≫ Qwen3.5 (20 t/s) ≫ Bonsai-8B (8 t/s)
 - **Context:** MiniCPM5 = Qwen3.5 (32K) > Bonsai-8B (16–20K, memory-dependent)
-- **Code quality:** Bonsai-8B > Qwen3.5 ≈ MiniCPM5
+- **Code quality:** Bonsai-8B > Qwen3.5 ≫ MiniCPM5
+- **Agent reliability:** Qwen3.5 ✅ · Bonsai-8B ✅ · MiniCPM5 ❌
 - **Disk footprint:** MiniCPM5 (1.1 GB) < Bonsai-8B (2.0 GB) < Qwen3.5 (2.5 GB)
-
-For most users, MiniCPM5-1B is the best starting point. Switch to Bonsai-8B when you need maximum accuracy on complex code generation.
 
 ---
 
@@ -247,13 +246,16 @@ All models run with `--reasoning auto`, which routes `<think>...</think>` tokens
 # Token-Jet configuration
 model_dir          = "/home/ubuntu/models"
 llama_cpp_bin      = "/home/ubuntu/llama.cpp/build/bin"
-default_model      = "/home/ubuntu/models/MiniCPM5-1B-Claude-Opus-Fable5-Thinking-Q8_0.gguf"
 server_host        = "127.0.0.1"
 server_port        = 1234
 
-# Cap thinking tokens to prevent reasoning models from over-thinking simple
-# requests. 0 = no cap (model default). 512–1024 suits most interactive use;
-# raise to 2048–4096 for complex coding questions.
+# Model to load on 'jetson-infer start'. If unset, jetson-infer uses the
+# project-recommended model (Qwen3.5-4B-Coder) if downloaded, then falls
+# back to the first .gguf found in model_dir.
+# startup_model = "/home/ubuntu/models/qwen3.5-4B-super-coder.Q4_0.gguf"
+
+# Cap thinking tokens to control verbosity on reasoning models (0 = no cap).
+# 512–1024 works well for most tasks; raise for complex multi-step problems.
 # reasoning_budget = 1024
 ```
 
@@ -319,14 +321,14 @@ jetson-infer install                                # Install systemd service (a
 
 | Model | Context allocated |
 |-------|:-----------------:|
-| MiniCPM5-1B | 32768 |
 | Qwen3.5-4B-Coder | 32768 |
 | Ternary-Bonsai-8B | 16384–20480 |
+| MiniCPM5-1B | 32768 |
 
 The **default model** is set in `~/.config/token-jet/config.toml`:
 
 ```toml
-default_model = "/home/ubuntu/models/MiniCPM5-1B-Claude-Opus-Fable5-Thinking-Q8_0.gguf"
+startup_model = "/home/ubuntu/models/qwen3.5-4B-super-coder.Q4_0.gguf"
 ```
 
 ---

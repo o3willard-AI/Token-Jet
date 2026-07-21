@@ -105,11 +105,17 @@ def _resolve_model_path(model_arg) -> str:
         # Accept as literal path even if it doesn't exist yet; validation in start_server
         return os.path.expanduser(model_arg)
 
-    # No argument — use default_model from config, else first .gguf in model_dir
+    # No argument — check config for an explicit startup model, then look for
+    # the project-recommended model on disk, then fall back to alphabetical first.
     import glob
-    default = _cfg("default_model", "")
-    if default and os.path.exists(os.path.expanduser(default)):
-        return os.path.expanduser(default)
+    startup = _cfg("startup_model", "") or _cfg("default_model", "")
+    if startup and os.path.exists(os.path.expanduser(startup)):
+        return os.path.expanduser(startup)
+
+    # Project recommendation: first model in MODELS with recommended=True that exists.
+    for m in MODELS.values():
+        if m.get("recommended") and os.path.exists(m["path"]):
+            return m["path"]
 
     model_dir = _cfg("model_dir", str(_HOME / "models"))
     ggufs = sorted(glob.glob(os.path.join(model_dir, "*.gguf")))
@@ -170,50 +176,49 @@ def _infer_model_info(model_path: str) -> dict:
 
 
 # Available models — metadata for context-window calculation (not exposed as CLI keys)
+#
+# recommended: True  →  used as the startup model when no model is specified
+#                        and no startup_model is set in config.toml.
+#                        Only one model should carry this flag at a time.
+# agent_capable: False → model is unsuitable for multi-step agent / coding tasks
+#                        (too few parameters for reliable tool use).
 MODELS = {
-    "MiniCPM5": {
-        "name": "MiniCPM5-1B (Claude-distilled)",
-        "path": str(_HOME / "models/MiniCPM5-1B-Claude-Opus-Fable5-Thinking-Q8_0.gguf"),
-        "size_gb": 1.13,
-        "speed_ts": 31.2,
-        "description": "Fastest. Claude-distilled thinking model. 31 t/s. Best for interactive use.",
-        "n_layers": 16,
-        "n_kv_heads": 2,
-        "head_dim": 128,
-        "max_ctx": 32768,
-    },
     "qwen3.5": {
         "name": "Qwen3.5-4B-Coder",
         "path": str(_HOME / "models/qwen3.5-4B-super-coder.Q4_0.gguf"),
         "size_gb": 2.49,
         "speed_ts": 20.0,
-        "description": "Solid all-rounder. 2.4× faster than Bonsai-8B.",
+        "description": "Recommended. Reliable agent and coding model. 20 t/s, 32K context.",
         "n_layers": 28,
         "n_kv_heads": 4,
         "head_dim": 128,
         "max_ctx": 131072,
+        "recommended": True,
+        "agent_capable": True,
     },
     "bonsai8b": {
         "name": "Ternary-Bonsai-8B (Q2_0)",
         "path": str(_HOME / "models/Ternary-Bonsai-8B-Q2_0.gguf"),
         "size_gb": 2.03,
         "speed_ts": 8.4,
-        "description": "Ternary 8B, Q2_0 quant. Requires PrismML fork for GPU.",
+        "description": "Highest accuracy. Ternary 8B, Q2_0 quant. Requires PrismML fork for GPU.",
         "n_layers": 36,
         "n_kv_heads": 8,
         "head_dim": 128,
         "max_ctx": 65536,
+        "agent_capable": True,
     },
     "bonsai8b-g64": {
         "name": "Ternary-Bonsai-8B (Q2_0_g64)",
         "path": str(_HOME / "models/Ternary-Bonsai-8B-Q2_0_g64.gguf"),
         "size_gb": 2.15,
         "speed_ts": 8.4,
-        "description": "Ternary 8B, Q2_0 g64 quant. Requires PrismML fork for GPU.",
+        "description": "Highest accuracy. Ternary 8B, Q2_0 g64 quant. Requires PrismML fork for GPU.",
         "n_layers": 36,
         "n_kv_heads": 8,
         "head_dim": 128,
         "max_ctx": 65536,
+        "agent_capable": True,
     },
     "bonsai27b": {
         "name": "Bonsai-27B-dspark (Q4_1)",
@@ -225,6 +230,19 @@ MODELS = {
         "n_kv_heads": 4,
         "head_dim": 128,
         "max_ctx": 32768,
+        "agent_capable": True,
+    },
+    "MiniCPM5": {
+        "name": "MiniCPM5-1B (Claude-distilled)",
+        "path": str(_HOME / "models/MiniCPM5-1B-Claude-Opus-Fable5-Thinking-Q8_0.gguf"),
+        "size_gb": 1.13,
+        "speed_ts": 31.2,
+        "description": "Fastest (31 t/s). Chat and quick Q&A only — 1B params is insufficient for reliable agent or coding tasks.",
+        "n_layers": 16,
+        "n_kv_heads": 2,
+        "head_dim": 128,
+        "max_ctx": 32768,
+        "agent_capable": False,
     },
 }
 
@@ -477,15 +495,20 @@ def show_models():
         ctx = calculate_max_context(info, free_mb)
         print(f"{os.path.basename(path):<52} {info['size_gb']:>5.1f} GB  {ctx:>8}")
 
-    default_cfg = _cfg("default_model", "")
-    if default_cfg and os.path.exists(os.path.expanduser(default_cfg)):
-        default_name = os.path.basename(default_cfg)
-    elif ggufs:
-        default_name = os.path.basename(ggufs[0]) + "  (first found)"
+    startup_cfg = _cfg("startup_model", "") or _cfg("default_model", "")
+    if startup_cfg and os.path.exists(os.path.expanduser(startup_cfg)):
+        startup_name = os.path.basename(startup_cfg) + "  (from config)"
     else:
-        default_name = "(none)"
+        # Find the recommended model that's actually downloaded
+        startup_name = None
+        for m in MODELS.values():
+            if m.get("recommended") and os.path.exists(m["path"]):
+                startup_name = os.path.basename(m["path"]) + "  (recommended)"
+                break
+        if not startup_name:
+            startup_name = os.path.basename(ggufs[0]) + "  (first found)" if ggufs else "(none)"
     print()
-    print(f"Default (jetson-infer start): {default_name}")
+    print(f"Will start: {startup_name}")
 
 
 def install_service():
