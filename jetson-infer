@@ -176,22 +176,22 @@ MODELS = {
         "path": str(_HOME / "models/MiniCPM5-1B-Claude-Opus-Fable5-Thinking-Q8_0.gguf"),
         "size_gb": 1.13,
         "speed_ts": 31.2,
-        "description": "Fastest. Claude-distilled thinking model. 31 t/s, 16K context. Best for interactive use.",
+        "description": "Fastest. Claude-distilled thinking model. 31 t/s. Best for interactive use.",
         "n_layers": 16,
         "n_kv_heads": 2,
         "head_dim": 128,
-        "max_ctx": 16384,
+        "max_ctx": 32768,
     },
     "qwen3.5": {
         "name": "Qwen3.5-4B-Coder",
         "path": str(_HOME / "models/qwen3.5-4B-super-coder.Q4_0.gguf"),
         "size_gb": 2.49,
         "speed_ts": 20.0,
-        "description": "Solid all-rounder. 2.4× faster than Bonsai-8B. 8K context.",
+        "description": "Solid all-rounder. 2.4× faster than Bonsai-8B.",
         "n_layers": 28,
         "n_kv_heads": 4,
         "head_dim": 128,
-        "max_ctx": 8192,
+        "max_ctx": 131072,
     },
     "bonsai8b": {
         "name": "Ternary-Bonsai-8B (Q2_0)",
@@ -254,33 +254,41 @@ def get_free_memory_mb():
 
 def calculate_max_context(model_info, free_memory_mb):
     """Calculate the largest context window that fits in available memory.
-    
-    KV cache per token ≈ (model_size_impact * 2.2) bytes.
-    Empirically, llama.cpp on Jetson Orin uses ~140 KB per token for 8B Qwen3.
-    This is ~4.4× the theoretical minimum due to CUDA alignment, overhead, etc.
+
+    KV cache cost per token = 2 * n_kv_heads * head_dim * n_layers * 2 bytes (fp16).
+    Validated empirically on Bonsai-8B: theoretical matches observed consumption
+    on Jetson Orin Nano with no significant overhead.
+
+    Falls back to file-size scaling for unknown models (conservative).
     """
     available_mb = free_memory_mb - model_info["size_gb"] * 1024 - SAFETY_MARGIN_MB
     if available_mb < MIN_FREE_MB:
         available_mb = MIN_FREE_MB
-    
-    # Empirical per-token cost (measured from cudaMalloc failure at 32768 tokens = 4608 MB)
-    # 4608 MB / 32768 tokens ≈ 144 KB/token for 8B. Scale by model params.
-    kb_per_token = 144 * (model_info["size_gb"] / 2.03)  # Scale relative to 8B baseline
-    
-    kv_budget_mb = available_mb * 0.85  # 85% for KV cache
-    
+
+    if all(k in model_info for k in ("n_kv_heads", "head_dim", "n_layers")):
+        # Architecture-based: accurate for any GQA model.
+        bytes_per_token = (2 * model_info["n_kv_heads"] * model_info["head_dim"]
+                           * model_info["n_layers"] * 2)
+        kb_per_token = bytes_per_token / 1024
+    else:
+        # Unknown model: size-based fallback (conservative — may undercount context).
+        kb_per_token = 144 * (model_info["size_gb"] / 2.03)
+
+    kv_budget_mb = available_mb * 0.85  # 15% headroom for CUDA overhead
+
     max_ctx = int(kv_budget_mb / (kb_per_token / 1024))
-    
-    # Clamp
     max_ctx = min(max_ctx, model_info["max_ctx"])
     max_ctx = max(max_ctx, 2048)
-    
-    # Round down to nearest step
-    steps = [2048, 4096, 6144, 8192, 12288, 16384, 20480, 24576, 32768]
+
+    # Round down to nearest power-of-2-ish step so llama.cpp gets a clean value.
+    steps = [2048, 4096, 6144, 8192, 12288, 16384, 20480, 24576, 32768,
+             49152, 65536, 98304, 131072]
     for i, step in enumerate(steps):
         if step > max_ctx:
             max_ctx = steps[i - 1] if i > 0 else steps[0]
             break
+    else:
+        max_ctx = steps[-1]
     return max_ctx
 
 
