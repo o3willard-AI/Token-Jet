@@ -195,6 +195,28 @@ echo "Python: ${PY_MAJOR}.${PY_MINOR} OK"
 echo ""
 
 # ─────────────────────────────────────────────────────────────────────────────
+# System tools — fd and ripgrep needed by the pi coding agent.
+# Without these, pi downloads its own ARM binaries on every fresh install.
+# fd is packaged as 'fd-find' on Ubuntu with the binary named 'fdfind';
+# we add a 'fd' symlink so pi finds it under the expected name.
+# ─────────────────────────────────────────────────────────────────────────────
+echo "Installing system tools (fd, ripgrep)..."
+_ssh "
+    MISSING=()
+    command -v fdfind &>/dev/null || dpkg -l fd-find &>/dev/null || MISSING+=(fd-find)
+    command -v rg     &>/dev/null || MISSING+=(ripgrep)
+    if [[ \${#MISSING[@]} -gt 0 ]]; then
+        echo '${JETSON_PASS}' | sudo -S apt-get install -y -q \"\${MISSING[@]}\"
+    fi
+    # Ensure 'fd' resolves — Ubuntu installs it as 'fdfind'
+    if ! command -v fd &>/dev/null && command -v fdfind &>/dev/null; then
+        echo '${JETSON_PASS}' | sudo -S ln -sf \$(which fdfind) /usr/local/bin/fd
+    fi
+"
+echo "  fd, ripgrep: OK"
+echo ""
+
+# ─────────────────────────────────────────────────────────────────────────────
 # JETSON-INFER deployment
 # ─────────────────────────────────────────────────────────────────────────────
 echo "Deploying jetson-infer..."
