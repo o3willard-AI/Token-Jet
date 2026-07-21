@@ -251,6 +251,19 @@ _ssh "
 "
 
 # ─────────────────────────────────────────────────────────────────────────────
+# pi skill wrappers — install ddg-search and fetch-url to /usr/local/bin so
+# they are available in non-interactive shells (where ~/bin isn't in PATH).
+# ─────────────────────────────────────────────────────────────────────────────
+echo "Installing pi skill wrappers..."
+_ssh "
+    echo '101abn' | sudo -S cp ~/Token-Jet/pi/ddg-search/ddg-search /usr/local/bin/ddg-search
+    echo '101abn' | sudo -S cp ~/Token-Jet/pi/ddg-search/fetch-url  /usr/local/bin/fetch-url
+    echo '101abn' | sudo -S chmod +x /usr/local/bin/ddg-search /usr/local/bin/fetch-url
+"
+echo "  /usr/local/bin/ddg-search: OK"
+echo "  /usr/local/bin/fetch-url:  OK"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Default config (install only)
 # ─────────────────────────────────────────────────────────────────────────────
 if [[ "$MODE" == "install" ]]; then
