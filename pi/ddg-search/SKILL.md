@@ -1,6 +1,6 @@
 ---
 name: ddg-search
-description: Search the web with DuckDuckGo. No API key needed. Commands available in bash: ddg-search "query" and fetch-url <url>
+description: "Search the web with DuckDuckGo. Run ddg-search \"query\" in bash. No API key needed."
 ---
 
 # Web Search
