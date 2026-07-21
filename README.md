@@ -6,6 +6,33 @@ Token-Jet turns a Jetson Orin Nano into a self-contained local AI server. One co
 
 ---
 
+## Screenshots
+
+<table>
+<tr>
+<td align="center" width="50%">
+<img src="images/tj-startup.jpg" alt="First launch — Jetson status with no model loaded yet" width="100%"><br>
+<sub><b>First launch.</b> Live Jetson status (RAM · CPU · GPU · Temp) updates every second. The welcome message walks you through the two steps needed to go from zero to chatting.</sub>
+</td>
+<td align="center" width="50%">
+<img src="images/tj-dnload.jpg" alt="Model browser downloading MiniCPM5-1B at 10 MB/s" width="100%"><br>
+<sub><b>Model browser</b> (<code>Ctrl+D</code>). Browse quantization options with file sizes, select one, and watch the live progress bar. Downloads stream directly from Hugging Face with SHA-256 verification.</sub>
+</td>
+</tr>
+<tr>
+<td align="center" width="50%">
+<img src="images/tj-switch.jpg" alt="Switching to Ternary-Bonsai-8B while MiniCPM5 is in standby" width="100%"><br>
+<sub><b>Model switch</b> (<code>Ctrl+S</code>). Both downloaded models appear in the standby list. The spinner shows the server reloading — typically 5–15 seconds.</sub>
+</td>
+<td align="center" width="50%">
+<img src="images/tj-chat.jpg" alt="MiniCPM5-1B active: reasoning trace visible, 33 t/s output, performance panel live" width="100%"><br>
+<sub><b>Active chat.</b> Thinking models surface their reasoning trace before the answer. The performance panel shows live throughput (33.3 t/s output here). Token count and latency appear below each reply.</sub>
+</td>
+</tr>
+</table>
+
+---
+
 ## Prerequisites
 
 ### Hardware
@@ -34,6 +61,7 @@ The install script handles all of this automatically — you don't need to do it
 |------|---------------|
 | `cmake`, `build-essential`, `cuda-nvcc`, `libcublas-dev` | System packages (via `apt`) |
 | llama.cpp (CUDA build) | `~/llama.cpp/` |
+| PrismML llama.cpp fork | `~/llama.cpp-prism/` (for Bonsai ternary models) |
 | Token-Jet TUI | `~/.local/share/token-jet/` (isolated Python venv) |
 | `jetson-infer` utility | `~/bin/jetson-infer` |
 | `token-jet` launcher | `~/.local/bin/token-jet` |
@@ -67,7 +95,8 @@ curl -sL https://raw.githubusercontent.com/o3willard-AI/Token-Jet/main/scripts/i
 2. Installs `cmake` and `build-essential` if missing
 3. Detects your CUDA version and architecture automatically
 4. Clones and builds `llama.cpp` from source with CUDA support *(~15–25 min)*
-5. Installs the TUI into an isolated Python venv
+5. Clones and builds the PrismML fork for Bonsai GPU support *(~10–15 min)*
+6. Installs the TUI into an isolated Python venv
 7. Deploys `jetson-infer` and creates the `token-jet` launcher
 8. Writes a default config and enables the systemd service
 
@@ -95,12 +124,13 @@ The installer SSHs into the Jetson, runs the same deployment steps remotely, the
 ```
 ./scripts/install.sh <jetson-ip> [options]
 
-  --user USER      Jetson SSH username (default: ubuntu)
-  --pass PASS      SSH password (prompted if omitted)
-  --no-pass        Use key-based SSH auth instead
-  --upgrade        Re-deploy source files; preserve config and models
-  --self-update    Pull latest from GitHub, then upgrade automatically
-  --uninstall      Remove Token-Jet from the Jetson
+  --user USER        Jetson SSH username (default: ubuntu)
+  --pass PASS        SSH password (prompted if omitted)
+  --no-pass          Use key-based SSH auth instead
+  --upgrade          Re-deploy source files; preserve config and models
+  --self-update      Pull latest from GitHub, then upgrade automatically
+  --uninstall        Remove Token-Jet from the Jetson
+  --no-prism-build   Skip PrismML fork build (if you don't use Bonsai models)
 ```
 
 **Tip — skip the password prompt with SSH keys:**
@@ -150,36 +180,88 @@ ssh-copy-id ubuntu@<jetson-ip>
 
 ## Recommended Models
 
-After evaluating ten models across coding tasks, IT troubleshooting scenarios, and real-world agent usage on the Jetson Orin Nano 8 GB, we recommend these three. The assessments below reflect our observations as of July 2026.
+After evaluating models across coding tasks, IT troubleshooting scenarios, and real-world agent usage on the Jetson Orin Nano 8 GB, we recommend these three. Assessments reflect July 2026 observations.
 
 | Model | Size | Speed | Max Context | Best For |
 |-------|------|:-----:|:-----------:|----------|
-| **MiniCPM5-1B** | 1.1 GB | 31 t/s | 16K | Interactive use, low latency, generous context |
-| **Qwen3.5-4B-Coder** | 2.5 GB | 20 t/s | 8K | Solid all-rounder, good speed at moderate context |
-| **Ternary-Bonsai-8B** | 2.0 GB | 8 t/s | 16K | Complex code generation, highest accuracy (Q2_0) |
+| **MiniCPM5-1B** | 1.1 GB | 31 t/s | 32K | Interactive use, low latency, generous context |
+| **Qwen3.5-4B-Coder** | 2.5 GB | 20 t/s | 32K | Solid all-rounder, good speed and context |
+| **Ternary-Bonsai-8B** | 2.0 GB | 8 t/s | 16–20K | Complex code generation, highest accuracy |
 
 All three are available directly from the TUI model browser (`Ctrl+D`) under the **Verified** tag.
 
 ### MiniCPM5-1B (Q8_0)
 
-The speed champion — over 30 tokens per second with a generous 16K context window at just 1.1 GB. Claude-distilled, so it inherits strong instruction-following and reasoning patterns. Ideal for interactive agents where latency matters.
+The speed champion — over 30 tokens per second with a 32K context window at just 1.1 GB. Claude-distilled, so it inherits strong instruction-following and reasoning patterns. Ideal for interactive agents where latency matters.
 
 ### Qwen3.5-4B-Coder (Q4_0)
 
-The pragmatic middle choice. More than twice as fast as the Bonsai-8B with solid code generation ability. The tighter 8K context window is the main trade-off — adequate for most coding tasks but limiting for very long files.
+The pragmatic middle choice. More than twice as fast as the Bonsai-8B with solid code generation ability and a 32K context window. The Q4_0 quant keeps it under 2.5 GB while retaining good answer quality.
 
 ### Ternary-Bonsai-8B (Q2_0)
 
-The accuracy leader. Ternary-trained weights (values constrained to {−1, 0, +1} during training) packed into standard Q2_0 format — consistently handles complex coding challenges that trip up the others. The cost is speed — 8 t/s. Best for offline or batch work where quality matters more than responsiveness.
+The accuracy leader. Ternary-trained weights (values constrained to {−1, 0, +1} during training) packed into standard Q2_0 format — consistently handles complex coding challenges that trip up the others. Requires the PrismML llama.cpp fork for GPU inference (installed automatically). The cost is speed — 8 t/s. Best for offline or batch work where quality matters more than responsiveness.
 
 ### Trade-offs at a glance
 
 - **Speed:** MiniCPM5 (31 t/s) ≫ Qwen3.5 (20 t/s) ≫ Bonsai-8B (8 t/s)
-- **Context:** MiniCPM5 = Bonsai-8B (16K) > Qwen3.5 (8K)
+- **Context:** MiniCPM5 = Qwen3.5 (32K) > Bonsai-8B (16–20K, memory-dependent)
 - **Code quality:** Bonsai-8B > Qwen3.5 ≈ MiniCPM5
 - **Disk footprint:** MiniCPM5 (1.1 GB) < Bonsai-8B (2.0 GB) < Qwen3.5 (2.5 GB)
 
 For most users, MiniCPM5-1B is the best starting point. Switch to Bonsai-8B when you need maximum accuracy on complex code generation.
+
+---
+
+## pi Coding Agent Integration
+
+Token-Jet ships a provider extension for the [pi coding agent](https://github.com/earendil-works/pi) that registers your Jetson as a local model source with native tool support.
+
+### What it adds
+
+- **Jetson provider** — pi discovers your local model automatically on startup, including context window size
+- **`web_search` tool** — the model can search DuckDuckGo directly without needing a bash workaround
+- **`fetch_url` tool** — the model can read any URL as markdown text
+
+### Setup
+
+```bash
+# On your workstation, point pi at the Jetson
+# In pi settings, add a custom provider pointing to:
+#   http://<jetson-ip>:1234/v1
+```
+
+The install script deploys `ddg-search` and `fetch-url` CLI wrappers to `/usr/local/bin/` on the Jetson. These are used by the native tools and can also be called directly from a bash session.
+
+### Thinking model behaviour
+
+All models run with `--reasoning auto`, which routes `<think>...</think>` tokens into a separate reasoning field. Pi surfaces this as a collapsible reasoning trace — the actual reply appears cleanly in the chat panel regardless of how much the model thought.
+
+---
+
+## Configuration
+
+`~/.config/token-jet/config.toml` on the Jetson controls inference server behaviour. The installer writes sensible defaults; edit it to tune:
+
+```toml
+# Token-Jet configuration
+model_dir          = "/home/ubuntu/models"
+llama_cpp_bin      = "/home/ubuntu/llama.cpp/build/bin"
+default_model      = "/home/ubuntu/models/MiniCPM5-1B-Claude-Opus-Fable5-Thinking-Q8_0.gguf"
+server_host        = "127.0.0.1"
+server_port        = 1234
+
+# Cap thinking tokens to prevent reasoning models from over-thinking simple
+# requests. 0 = no cap (model default). 512–1024 suits most interactive use;
+# raise to 2048–4096 for complex coding questions.
+# reasoning_budget = 1024
+```
+
+After editing, restart the server to pick up changes:
+
+```bash
+jetson-infer stop && jetson-infer start
+```
 
 ---
 
@@ -226,16 +308,24 @@ Endpoint: `http://<jetson-ip>:1234/v1`
 ```bash
 jetson-infer start                                  # Start the default model
 jetson-infer start --model ~/models/foo.gguf        # Start any model by full path
+jetson-infer start --watchdog                       # Start with health + memory monitoring
 jetson-infer status                                 # Show running model, memory, health
 jetson-infer stop                                   # Stop the server
 jetson-infer models                                 # List downloaded models + estimated context
 jetson-infer install                                # Install systemd service (auto-start on boot)
 ```
 
-The **default model** is whichever path is set as `default_model` in `~/.config/token-jet/config.toml`. If that's empty, `jetson-infer start` uses the first `.gguf` file found in `model_dir` (alphabetically). Set it once and forget it:
+`jetson-infer` calculates the largest context window that fits in available memory using your model's architecture (KV heads, head dimension, layer count) rather than a crude file-size heuristic. On a fresh 8 GB Jetson with one model loaded, typical results:
 
-```bash
-# In ~/.config/token-jet/config.toml
+| Model | Context allocated |
+|-------|:-----------------:|
+| MiniCPM5-1B | 32768 |
+| Qwen3.5-4B-Coder | 32768 |
+| Ternary-Bonsai-8B | 16384–20480 |
+
+The **default model** is set in `~/.config/token-jet/config.toml`:
+
+```toml
 default_model = "/home/ubuntu/models/MiniCPM5-1B-Claude-Opus-Fable5-Thinking-Q8_0.gguf"
 ```
 
@@ -249,6 +339,9 @@ Token-Jet/
 ├── jetson-infer.service      # Systemd service file
 ├── tui/                      # Terminal dashboard (Textual)
 │   └── token_jet_tui/
+├── pi/                       # pi coding agent extension
+│   ├── jetson-provider.ts    # Provider + web_search / fetch_url tools
+│   └── ddg-search/           # DuckDuckGo search skill (Node.js)
 ├── scripts/
 │   ├── install-local.sh      # Install directly on the Jetson (recommended)
 │   └── install.sh            # Install remotely from a workstation
