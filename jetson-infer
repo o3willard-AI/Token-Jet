@@ -124,9 +124,24 @@ def _resolve_model_path(model_arg) -> str:
 def _select_server_bin(model_path: str) -> str:
     """Return the llama-server binary path for the given model.
 
-    config.toml stores llama_cpp_bin as a directory (build/bin).
-    Always append the binary name here so we return an executable path.
+    PrismML Bonsai models use TYPE_41/TYPE_42 custom ternary quants that
+    require the PrismML fork (pr/q2_0-cuda branch). Detected by filename.
+    All other models use the standard llama.cpp build.
     """
+    basename = os.path.basename(model_path).lower()
+    if "bonsai" in basename:
+        prism_dir = os.path.expanduser(
+            _cfg("prism_llama_cpp_bin", str(_HOME / "llama.cpp-prism/build/bin"))
+        )
+        prism_bin = os.path.join(prism_dir, "llama-server")
+        if os.path.isfile(prism_bin) and os.access(prism_bin, os.X_OK):
+            return prism_bin
+        # Prism fork not built yet — fall through to standard binary with a warning.
+        print("WARNING: Bonsai model detected but prism fork not found at:")
+        print(f"  {prism_bin}")
+        print("GPU inference will not work. Build the prism fork:")
+        print("  git clone --branch pr/q2_0-cuda https://github.com/PrismML-Eng/llama.cpp ~/llama.cpp-prism")
+        print("  cd ~/llama.cpp-prism && cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=87 && cmake --build build -j6 --target llama-server")
     bin_dir = os.path.expanduser(
         _cfg("llama_cpp_bin", str(_HOME / "llama.cpp/build/bin"))
     )
@@ -156,7 +171,6 @@ MODELS = {
     "MiniCPM5": {
         "name": "MiniCPM5-1B (Claude-distilled)",
         "path": str(_HOME / "models/MiniCPM5-1B-Claude-Opus-Fable5-Thinking-Q8_0.gguf"),
-        "server_bin": str(_HOME / "llama.cpp/build/bin/llama-server"),
         "size_gb": 1.13,
         "speed_ts": 31.2,
         "description": "Fastest. Claude-distilled thinking model. 31 t/s, 16K context. Best for interactive use.",
@@ -168,7 +182,6 @@ MODELS = {
     "qwen3.5": {
         "name": "Qwen3.5-4B-Coder",
         "path": str(_HOME / "models/qwen3.5-4B-super-coder.Q4_0.gguf"),
-        "server_bin": str(_HOME / "llama.cpp/build/bin/llama-server"),
         "size_gb": 2.49,
         "speed_ts": 20.0,
         "description": "Solid all-rounder. 2.4× faster than Bonsai-8B. 8K context.",
@@ -177,14 +190,35 @@ MODELS = {
         "head_dim": 128,
         "max_ctx": 8192,
     },
-    "8B": {
-        "name": "Ternary-Bonsai-8B",
+    "bonsai8b": {
+        "name": "Ternary-Bonsai-8B (Q2_0)",
         "path": str(_HOME / "models/Ternary-Bonsai-8B-Q2_0.gguf"),
-        "server_bin": str(_HOME / "llama.cpp/build/bin/llama-server"),
         "size_gb": 2.03,
         "speed_ts": 8.4,
-        "description": "Highest accuracy. Ternary-trained 8B, Q2_0 quant. Handles complex code the others miss. 16K context.",
-        "n_layers": 32,
+        "description": "Ternary 8B, Q2_0 quant. Requires PrismML fork for GPU.",
+        "n_layers": 36,
+        "n_kv_heads": 8,
+        "head_dim": 128,
+        "max_ctx": 65536,
+    },
+    "bonsai8b-g64": {
+        "name": "Ternary-Bonsai-8B (Q2_0_g64)",
+        "path": str(_HOME / "models/Ternary-Bonsai-8B-Q2_0_g64.gguf"),
+        "size_gb": 2.15,
+        "speed_ts": 8.4,
+        "description": "Ternary 8B, Q2_0 g64 quant. Requires PrismML fork for GPU.",
+        "n_layers": 36,
+        "n_kv_heads": 8,
+        "head_dim": 128,
+        "max_ctx": 65536,
+    },
+    "bonsai27b": {
+        "name": "Bonsai-27B-dspark (Q4_1)",
+        "path": str(_HOME / "models/Bonsai-27B-dspark-Q4_1.gguf"),
+        "size_gb": 1.7,
+        "speed_ts": None,
+        "description": "Bonsai 27B distilled, Q4_1 quant. Requires PrismML fork.",
+        "n_layers": 28,
         "n_kv_heads": 4,
         "head_dim": 128,
         "max_ctx": 32768,
