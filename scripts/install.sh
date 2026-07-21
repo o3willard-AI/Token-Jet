@@ -334,6 +334,7 @@ server_port        = 1234
 ld_library_path    = \"/usr/local/cuda-13.2/targets/sbsa-linux/lib\"
 jetson_infer_bin   = \"/home/${JETSON_USER}/bin/jetson-infer\"
 hf_download_timeout = 300
+# reasoning_budget = 1024   # Max thinking tokens per request (0 = no cap)
 TOML_EOF
             echo 'Config written to ${CONFIG_DIR}/config.toml'
             echo 'Edit it to match your llama.cpp and model paths before first use.'

@@ -357,6 +357,12 @@ def start_server(model_path: str, port=PORT):
         "--reasoning", "auto",
     ]
 
+    # Cap thinking tokens. 0 = no cap (model default). Tune in config.toml:
+    #   reasoning_budget = 1024
+    reasoning_budget = int(_cfg("reasoning_budget", 0))
+    if reasoning_budget > 0:
+        cmd += ["--reasoning-budget", str(reasoning_budget)]
+
     print(f"Starting: {' '.join(cmd)}")
     print(f"Logs: {LOG_FILE}")
 
