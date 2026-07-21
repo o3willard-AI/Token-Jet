@@ -121,15 +121,18 @@ def _resolve_model_path(model_arg) -> str:
     sys.exit(1)
 
 
-def _select_server_bin(model_path: str) -> str:
-    """Return the llama-server binary path for the given model.
+# Models that require the PrismML llama.cpp fork for GPU inference.
+# These use TYPE_41/TYPE_42 custom ternary quants with no CUDA kernels in
+# upstream llama.cpp. Add new entries here as maintainers vet new model families.
+_PRISM_MODEL_PATTERNS = (
+    "bonsai",       # Ternary-Bonsai-8B (PrismML Q2_0 / Q2_0_g64)
+)
 
-    PrismML Bonsai models use TYPE_41/TYPE_42 custom ternary quants that
-    require the PrismML fork (pr/q2_0-cuda branch). Detected by filename.
-    All other models use the standard llama.cpp build.
-    """
+
+def _select_server_bin(model_path: str) -> str:
+    """Return the llama-server binary path for the given model."""
     basename = os.path.basename(model_path).lower()
-    if "bonsai" in basename:
+    if any(p in basename for p in _PRISM_MODEL_PATTERNS):
         prism_dir = os.path.expanduser(
             _cfg("prism_llama_cpp_bin", str(_HOME / "llama.cpp-prism/build/bin"))
         )
@@ -347,15 +350,12 @@ def start_server(model_path: str, port=PORT):
         "--n-gpu-layers", "99",
         "--ctx-size", str(ctx_size),
         "--metrics",
+        # Always enabled: harmless no-op for non-thinking models; required for
+        # any model that generates <think>...</think> blocks (Qwen3, MiniCPM,
+        # DeepSeek-R1, Phi-4-reasoning, etc.) so llama-server routes thinking
+        # tokens into reasoning_content instead of stopping at </think>.
+        "--reasoning", "auto",
     ]
-
-    # Qwen3, MiniCPM-Thinking, and Bonsai (Qwen3-based) models generate
-    # <think>...</think> blocks. Without --reasoning auto, llama-server may
-    # stop generation at </think> and return an empty content field.
-    basename_lower = os.path.basename(model_path).lower()
-    _THINKING_PATTERNS = ("qwen3", "minicpm", "thinking", "bonsai")
-    if any(p in basename_lower for p in _THINKING_PATTERNS):
-        cmd += ["--reasoning", "auto"]
 
     print(f"Starting: {' '.join(cmd)}")
     print(f"Logs: {LOG_FILE}")
