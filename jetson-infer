@@ -349,6 +349,14 @@ def start_server(model_path: str, port=PORT):
         "--metrics",
     ]
 
+    # Qwen3, MiniCPM-Thinking, and Bonsai (Qwen3-based) models generate
+    # <think>...</think> blocks. Without --reasoning auto, llama-server may
+    # stop generation at </think> and return an empty content field.
+    basename_lower = os.path.basename(model_path).lower()
+    _THINKING_PATTERNS = ("qwen3", "minicpm", "thinking", "bonsai")
+    if any(p in basename_lower for p in _THINKING_PATTERNS):
+        cmd += ["--reasoning", "auto"]
+
     print(f"Starting: {' '.join(cmd)}")
     print(f"Logs: {LOG_FILE}")
 
