@@ -378,6 +378,23 @@ npm install -g --ignore-scripts @earendil-works/pi-coding-agent 2>/dev/null \
     && echo "  pi $(pi --version 2>/dev/null || echo installed): OK" \
     || echo "  WARNING: pi install failed — check npm output above"
 
+# Install pi extensions — pre-configured and available immediately after install.
+# Each uses pi's own package manager (pi install npm:...) which handles placement
+# into ~/.pi/agent/ automatically.
+echo "  Installing pi extensions..."
+yes | pi install npm:pi-mcp-adapter 2>/dev/null \
+    && echo "    pi-mcp-adapter: OK" \
+    || echo "    WARNING: pi-mcp-adapter install failed"
+yes | pi install 'npm:@plannotator/pi-extension' 2>/dev/null \
+    && echo "    @plannotator/pi-extension: OK" \
+    || echo "    WARNING: @plannotator/pi-extension install failed"
+yes | pi install 'npm:@juicesharp/rpiv-ask-user-question' 2>/dev/null \
+    && echo "    @juicesharp/rpiv-ask-user-question: OK" \
+    || echo "    WARNING: @juicesharp/rpiv-ask-user-question install failed"
+yes | pi install npm:pi-knowledge 2>/dev/null \
+    && echo "    pi-knowledge: OK" \
+    || echo "    WARNING: pi-knowledge install failed"
+
 # Install pi-web (browser UI for pi sessions — accessible at http://<jetson-ip>:30141).
 npm install -g @agegr/pi-web 2>/dev/null \
     && echo "  pi-web: OK" \

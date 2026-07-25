@@ -308,7 +308,7 @@ echo "  /usr/local/bin/fetch-url:  OK"
 # user-local npm prefix (avoids sudo for npm installs).
 # pi-web is exposed on all interfaces so it's reachable from this workstation.
 # ─────────────────────────────────────────────────────────────────────────────
-echo "Installing Node.js 22 and pi-web..."
+echo "Installing Node.js 22, pi coding agent, extensions, and pi-web..."
 _ssh "
     NODE_OK=false
     if command -v node &>/dev/null; then
@@ -332,11 +332,60 @@ _ssh "
     fi
     export PATH=\"\${NPM_GLOBAL}/bin:\${PATH}\"
 
+    npm install -g --ignore-scripts @earendil-works/pi-coding-agent 2>/dev/null \
+        && echo '  pi coding agent: OK' \
+        || echo '  WARNING: pi install failed'
+
+    yes | pi install npm:pi-mcp-adapter 2>/dev/null \
+        && echo '  pi-mcp-adapter: OK' \
+        || echo '  WARNING: pi-mcp-adapter install failed'
+    yes | pi install 'npm:@plannotator/pi-extension' 2>/dev/null \
+        && echo '  @plannotator/pi-extension: OK' \
+        || echo '  WARNING: @plannotator/pi-extension install failed'
+    yes | pi install 'npm:@juicesharp/rpiv-ask-user-question' 2>/dev/null \
+        && echo '  @juicesharp/rpiv-ask-user-question: OK' \
+        || echo '  WARNING: @juicesharp/rpiv-ask-user-question install failed'
+    yes | pi install npm:pi-knowledge 2>/dev/null \
+        && echo '  pi-knowledge: OK' \
+        || echo '  WARNING: pi-knowledge install failed'
+
     npm install -g @agegr/pi-web 2>/dev/null \
         && echo '  pi-web: OK' \
         || echo '  WARNING: pi-web install failed'
 "
-echo "  pi-web: deployed"
+
+# Deploy pi provider extension and configure auth — both missing from this path
+# before this fix; install-local.sh has had these since initial pi integration.
+echo "Deploying pi provider extension..."
+_ssh "mkdir -p ~/.pi/agent/extensions/"
+cat "${REPO_ROOT}/pi/jetson-provider.ts" | _pipe_to "~/.pi/agent/extensions/jetson-provider.ts"
+echo "  jetson-provider.ts: OK"
+
+if [[ ! -f "${REPO_ROOT}/pi/settings.json" ]] || _ssh "[[ -f ~/.pi/agent/settings.json ]]"; then
+    echo "  pi settings: preserved (already exists)"
+else
+    cat "${REPO_ROOT}/pi/settings.json" | _pipe_to "~/.pi/agent/settings.json"
+    echo "  pi settings: OK"
+fi
+
+_ssh "
+    python3 - <<'PYEOF'
+import json, os
+path = os.path.expanduser('~/.pi/agent/auth.json')
+try:
+    d = json.loads(open(path).read()) if os.path.exists(path) else {}
+except Exception:
+    d = {}
+if d.get('jetson-local', {}).get('key') != 'none':
+    d['jetson-local'] = {'type': 'api_key', 'key': 'none'}
+    open(path, 'w').write(json.dumps(d, indent=2) + '\n')
+    print('  pi auth: jetson-local credential written')
+else:
+    print('  pi auth: already configured')
+PYEOF
+"
+
+echo "  pi coding agent: configured"
 
 echo "Installing pi-web service..."
 cat "${REPO_ROOT}/pi-web.service" | _pipe_to "~/.config/systemd/user/pi-web.service"
