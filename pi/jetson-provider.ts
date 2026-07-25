@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { spawnSync } from "child_process";
+import { readdirSync, statSync } from "fs";
 import { homedir } from "os";
 
 const SERVER_BASE = "http://127.0.0.1:1234";
@@ -134,6 +135,89 @@ export default function (pi: ExtensionAPI) {
         content: [{ type: "text" as const, text }],
         details: {},
       };
+    },
+  });
+
+  // ── list_models tool ───────────────────────────────────────────────────────
+  pi.registerTool({
+    name: "list_models",
+    label: "List Models",
+    description:
+      "List all GGUF models downloaded on the Jetson and show which one is currently active. " +
+      "Call this before switch_model to get the exact filename to pass.",
+    promptSnippet: "list_models() — show active model and all downloaded models available to switch to",
+    parameters: Type.Object({}),
+    async execute(_id, _params, signal, _onUpdate, _ctx) {
+      let activeId = "";
+      try {
+        const resp = await fetch(`${SERVER_BASE}/v1/models`, { signal });
+        if (resp.ok) {
+          const data = await resp.json();
+          activeId = (data.data?.[0]?.id ?? "").split("/").pop() ?? "";
+        }
+      } catch {}
+
+      const modelDir = `${homedir()}/models`;
+      let files: string[] = [];
+      try {
+        files = readdirSync(modelDir)
+          .filter((f: string) => f.endsWith(".gguf"))
+          .sort();
+      } catch {}
+
+      if (!files.length) {
+        return {
+          content: [{ type: "text" as const, text: "No models found in ~/models/" }],
+          details: {},
+        };
+      }
+
+      const lines = files.map((f: string) => {
+        const active = f === activeId;
+        let sizeGb = "?.? ";
+        try {
+          sizeGb = (statSync(`${modelDir}/${f}`).size / 1024 ** 3).toFixed(1);
+        } catch {}
+        return `${active ? "▶ " : "  "}${f}  (${sizeGb} GB)${active ? "  ← active" : ""}`;
+      });
+
+      const text = `Downloaded models  (▶ = currently active)\n\n${lines.join("\n")}`;
+      return { content: [{ type: "text" as const, text }], details: {} };
+    },
+  });
+
+  // ── switch_model tool ──────────────────────────────────────────────────────
+  pi.registerTool({
+    name: "switch_model",
+    label: "Switch Model",
+    description:
+      "Stop the current inference server and restart it with a different downloaded model. " +
+      "Use list_models first to get the exact filename. " +
+      "After a successful switch, tell the user to restart pi to reconnect: " +
+      "type /exit then reopen pi from the terminal — their session will be restored.",
+    promptSnippet:
+      'switch_model(model="filename.gguf") — switch active model; always remind user to restart pi afterward',
+    parameters: Type.Object({
+      model: Type.String({
+        description: "Exact filename from list_models output (e.g. qwen3.5-4B-super-coder.Q4_0.gguf)",
+      }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      const bin = `${homedir()}/bin/jetson-infer`;
+      const result = spawnSync(bin, ["switch", params.model], {
+        timeout: 120000,
+        encoding: "utf8",
+      });
+
+      const raw = result.stdout?.trim() || result.stderr?.trim() || "No output.";
+      const output = raw.replace(/\x1b\[[0-9;]*m/g, ""); // strip ANSI colour codes
+      const success = result.status === 0;
+
+      const text = success
+        ? `${output}\n\n---\nModel switched. To reconnect pi to the new model:\n  1. Type /exit to end this session\n  2. Reopen pi from your terminal — your session will be restored.`
+        : `Switch failed (exit ${result.status ?? "timeout"}):\n${output}`;
+
+      return { content: [{ type: "text" as const, text }], details: {} };
     },
   });
 

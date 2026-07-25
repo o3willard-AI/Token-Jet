@@ -511,6 +511,15 @@ def show_models():
     print(f"Will start: {startup_name}")
 
 
+def switch_model(model_arg: str, port=PORT):
+    """Stop the running server and restart with a different model."""
+    model_path = _resolve_model_path(model_arg)
+    print(f"Switching to: {os.path.basename(model_path)}")
+    stop_server()
+    time.sleep(2)
+    start_server(model_path, port)
+
+
 def install_service():
     """Install systemd service for auto-start on boot."""
     service_file = Path(__file__).parent / "jetson-infer.service"
@@ -626,8 +635,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  jetson-infer start                              Start default model
+  jetson-infer start                              Start recommended model
   jetson-infer start --model ~/models/foo.gguf   Start a specific model
+  jetson-infer switch qwen3.5-4B-super-coder.Q4_0.gguf   Switch to a different model
   jetson-infer status                             Show server status
   jetson-infer stop                               Stop the server
   jetson-infer models                             List downloaded models
@@ -646,6 +656,13 @@ Examples:
     start_parser.add_argument("--watchdog", action="store_true",
                               help="Run with health/memory monitoring and auto-restart")
 
+    switch_parser = sub.add_parser("switch", help="Switch to a different model (stops current, starts new)")
+    switch_parser.add_argument(
+        "model", metavar="MODEL",
+        help="Model filename (e.g. qwen3.5-4B-super-coder.Q4_0.gguf), full path, or name key",
+    )
+    switch_parser.add_argument("--port", type=int, default=PORT)
+
     sub.add_parser("stop", help="Stop inference server")
     sub.add_parser("status", help="Show server status")
     sub.add_parser("models", help="List downloaded models with estimated context window")
@@ -653,7 +670,9 @@ Examples:
 
     args = parser.parse_args()
 
-    if args.command == "start":
+    if args.command == "switch":
+        switch_model(args.model, args.port)
+    elif args.command == "start":
         model_path = _resolve_model_path(args.model)
         if args.watchdog:
             start_server(model_path, args.port)
