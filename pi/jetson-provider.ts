@@ -1,8 +1,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { spawnSync } from "child_process";
+import { execFile, spawnSync } from "child_process";
 import { readdirSync, statSync } from "fs";
 import { homedir } from "os";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
 
 const SERVER_BASE = "http://127.0.0.1:1234";
 const DEFAULT_CTX = 16384;
@@ -247,6 +250,93 @@ export default function (pi: ExtensionAPI) {
         content: [{ type: "text" as const, text }],
         details: {},
       };
+    },
+  });
+
+  // ── Shared helper ──────────────────────────────────────────────────────────
+  function listGgufs(): { name: string; sizeGb: string }[] {
+    const modelDir = `${homedir()}/models`;
+    try {
+      return readdirSync(modelDir)
+        .filter((f: string) => f.endsWith(".gguf"))
+        .sort()
+        .map((f: string) => {
+          let sizeGb = "?.?";
+          try { sizeGb = (statSync(`${modelDir}/${f}`).size / 1024 ** 3).toFixed(1); } catch {}
+          return { name: f, sizeGb };
+        });
+    } catch {
+      return [];
+    }
+  }
+
+  // ── /models slash command ──────────────────────────────────────────────────
+  pi.registerCommand("models", {
+    description: "List downloaded models and show which one is active",
+    handler: async (_args, ctx) => {
+      let activeId = "";
+      try {
+        const resp = await fetch(`${SERVER_BASE}/v1/models`);
+        if (resp.ok) {
+          const data = await resp.json();
+          activeId = (data.data?.[0]?.id ?? "").split("/").pop() ?? "";
+        }
+      } catch {}
+
+      const models = listGgufs();
+      if (!models.length) {
+        ctx.ui.notify("No models found in ~/models/", "warning");
+        return;
+      }
+
+      const lines = models.map(({ name, sizeGb }) => {
+        const active = name === activeId;
+        return `${active ? "▶ " : "  "}${name}  (${sizeGb} GB)`;
+      });
+      ctx.ui.notify(lines.join("\n"), "info");
+    },
+  });
+
+  // ── /switch slash command ──────────────────────────────────────────────────
+  pi.registerCommand("switch", {
+    description: "Switch the active inference model (interactive picker or /switch <filename>)",
+    getArgumentCompletions: (_prefix: string) =>
+      listGgufs().map(({ name, sizeGb }) => ({
+        value: name,
+        label: name,
+        description: `${sizeGb} GB`,
+      })),
+    handler: async (args, ctx) => {
+      const models = listGgufs();
+      if (!models.length) {
+        ctx.ui.notify("No models found in ~/models/", "warning");
+        return;
+      }
+
+      let chosen = args.trim();
+      if (!chosen) {
+        const picked = await ctx.ui.select(
+          "Switch Model",
+          models.map(({ name, sizeGb }) => `${name}  (${sizeGb} GB)`)
+        );
+        if (!picked) return;
+        // Strip the size suffix to get the bare filename
+        chosen = picked.replace(/\s+\([\d.]+ GB\)$/, "");
+      }
+
+      const bin = `${homedir()}/bin/jetson-infer`;
+      ctx.ui.setStatus("model-switch", `Switching to ${chosen}…`);
+      try {
+        await execFileAsync(bin, ["switch", chosen], { timeout: 120000 });
+        ctx.ui.setStatus("model-switch", undefined);
+        ctx.ui.notify(
+          `Switched to ${chosen}.\nType /exit then reopen pi — your session will be restored.`,
+          "info"
+        );
+      } catch (err: any) {
+        ctx.ui.setStatus("model-switch", undefined);
+        ctx.ui.notify(`Switch failed: ${err.message ?? String(err)}`, "error");
+      }
     },
   });
 }
