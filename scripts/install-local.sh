@@ -77,6 +77,9 @@ if [[ "$MODE" == "uninstall" ]]; then
     systemctl --user stop    jetson-infer 2>/dev/null || true
     systemctl --user disable jetson-infer 2>/dev/null || true
     rm -f ~/.config/systemd/user/jetson-infer.service
+    systemctl --user stop    pi-web 2>/dev/null || true
+    systemctl --user disable pi-web 2>/dev/null || true
+    rm -f ~/.config/systemd/user/pi-web.service
     systemctl --user daemon-reload 2>/dev/null || true
     sudo systemctl stop    jetson-clocks-boot 2>/dev/null || true
     sudo systemctl disable jetson-clocks-boot 2>/dev/null || true
@@ -375,6 +378,11 @@ npm install -g --ignore-scripts @earendil-works/pi-coding-agent 2>/dev/null \
     && echo "  pi $(pi --version 2>/dev/null || echo installed): OK" \
     || echo "  WARNING: pi install failed — check npm output above"
 
+# Install pi-web (browser UI for pi sessions — accessible at http://<jetson-ip>:30141).
+npm install -g @agegr/pi-web 2>/dev/null \
+    && echo "  pi-web: OK" \
+    || echo "  WARNING: pi-web install failed — check npm output above"
+
 # Install ddg-search skill dependencies (shipped in this repo — no clone needed,
 # no API key required). npm install is idempotent; safe on both install and upgrade.
 npm --prefix "${REPO_ROOT}/pi/ddg-search" install --ignore-scripts 2>/dev/null \
@@ -415,6 +423,22 @@ else:
     print("  pi auth: auth.json already configured")
 PYEOF
 
+# ── Pi-web service ────────────────────────────────────────────────────────────
+# Deploy the pi-web systemd user service on every install/upgrade so changes
+# from the repo land automatically. Then start (install) or restart (upgrade).
+echo "Installing pi-web service..."
+mkdir -p ~/.config/systemd/user/
+cp "${REPO_ROOT}/pi-web.service" ~/.config/systemd/user/pi-web.service
+systemctl --user daemon-reload 2>/dev/null || true
+if [[ "$MODE" == "upgrade" ]]; then
+    systemctl --user restart pi-web 2>/dev/null || true
+    echo "  pi-web service: restarted"
+else
+    systemctl --user enable pi-web 2>/dev/null || true
+    systemctl --user start  pi-web 2>/dev/null || true
+    echo "  pi-web service: enabled + started"
+fi
+
 # ── Default config (install only) ────────────────────────────────────────────
 if [[ "$MODE" == "install" ]]; then
     mkdir -p "$CONFIG_DIR"
@@ -454,14 +478,19 @@ sudo systemctl daemon-reload 2>/dev/null || true
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
+JETSON_IP=$(hostname -I | awk '{print $1}')
 echo "=== Installation complete! ==="
 echo ""
 echo "  source ~/.bashrc      (or open a new terminal)"
-echo "  token-jet             (launch the dashboard)"
+echo "  token-jet             (launch the TUI dashboard)"
+echo "  pi-web                (start browser UI manually, if not using the service)"
+echo ""
+echo "Browser UI (pi-web) is running as a background service:"
+echo "  http://${JETSON_IP}:30141   ← open this on your workstation"
 echo ""
 echo "First run — do these steps inside the TUI:"
 echo "  1. Ctrl+D  → open the model browser and download a model"
-echo "               (MiniCPM5-1B-Thinking recommended — 1.1 GB, 31 t/s)"
+echo "               (Qwen3.5-4B-Coder recommended — 2.5 GB, 20 t/s)"
 echo "  2. Ctrl+S  → select and start the downloaded model"
 echo "  3. Type in the chat box and press Enter"
 echo ""

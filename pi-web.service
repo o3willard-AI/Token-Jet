@@ -1,0 +1,15 @@
+[Unit]
+Description=pi-web — browser UI for the pi coding agent
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+ExecStart=%h/.npm-global/bin/pi-web --hostname 0.0.0.0 --no-open
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/tmp/pi-web.log
+StandardError=append:/tmp/pi-web.log
+
+[Install]
+WantedBy=default.target

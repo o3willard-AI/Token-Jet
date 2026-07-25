@@ -155,9 +155,12 @@ if [[ "$MODE" == "uninstall" ]]; then
     echo "Uninstalling Token-Jet from ${JETSON}..."
     _ssh "
         set -e
-        systemctl --user stop jetson-infer 2>/dev/null || true
+        systemctl --user stop    jetson-infer 2>/dev/null || true
         systemctl --user disable jetson-infer 2>/dev/null || true
         rm -f ~/.config/systemd/user/jetson-infer.service
+        systemctl --user stop    pi-web 2>/dev/null || true
+        systemctl --user disable pi-web 2>/dev/null || true
+        rm -f ~/.config/systemd/user/pi-web.service
         systemctl --user daemon-reload 2>/dev/null || true
 
         rm -rf '${INSTALL_BASE}'
@@ -297,6 +300,58 @@ _ssh "echo '${JETSON_PASS}' | sudo -S bash -c '
 '"
 echo "  /usr/local/bin/ddg-search: OK"
 echo "  /usr/local/bin/fetch-url:  OK"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Node.js 22 + pi-web
+# Ubuntu 24.04's default apt repos ship Node 18; pi-web requires 22+.
+# We install from NodeSource if needed, then install pi-web globally into a
+# user-local npm prefix (avoids sudo for npm installs).
+# pi-web is exposed on all interfaces so it's reachable from this workstation.
+# ─────────────────────────────────────────────────────────────────────────────
+echo "Installing Node.js 22 and pi-web..."
+_ssh "
+    NODE_OK=false
+    if command -v node &>/dev/null; then
+        NODE_MAJOR=\$(node --version 2>/dev/null | grep -oP '(?<=v)\d+' || echo 0)
+        [[ \"\$NODE_MAJOR\" -ge 22 ]] && NODE_OK=true
+    fi
+    if ! \$NODE_OK; then
+        echo '  Installing Node.js 22 (via NodeSource)...'
+        curl -fsSL https://deb.nodesource.com/setup_22.x | echo '${JETSON_PASS}' | sudo -SE bash - 2>/dev/null
+        echo '${JETSON_PASS}' | sudo -S apt-get install -y -qq nodejs
+    fi
+    echo \"  Node.js \$(node --version): OK\"
+
+    NPM_GLOBAL=\"\${HOME}/.npm-global\"
+    if [[ \"\$(npm config get prefix 2>/dev/null)\" != \"\$NPM_GLOBAL\" ]]; then
+        mkdir -p \"\$NPM_GLOBAL\"
+        npm config set prefix \"\$NPM_GLOBAL\"
+    fi
+    if ! grep -q '.npm-global/bin' ~/.bashrc 2>/dev/null; then
+        echo 'export PATH=\"\$HOME/.npm-global/bin:\$PATH\"' >> ~/.bashrc
+    fi
+    export PATH=\"\${NPM_GLOBAL}/bin:\${PATH}\"
+
+    npm install -g @agegr/pi-web 2>/dev/null \
+        && echo '  pi-web: OK' \
+        || echo '  WARNING: pi-web install failed'
+"
+echo "  pi-web: deployed"
+
+echo "Installing pi-web service..."
+cat "${REPO_ROOT}/pi-web.service" | _pipe_to "~/.config/systemd/user/pi-web.service"
+_ssh "
+    mkdir -p ~/.config/systemd/user/
+    systemctl --user daemon-reload 2>/dev/null || true
+    if [[ '$MODE' == 'upgrade' ]]; then
+        systemctl --user restart pi-web 2>/dev/null || true
+        echo '  pi-web service: restarted'
+    else
+        systemctl --user enable pi-web 2>/dev/null || true
+        systemctl --user start  pi-web 2>/dev/null || true
+        echo '  pi-web service: enabled + started'
+    fi
+"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PrismML llama.cpp fork — required for GPU inference on Bonsai ternary models.
@@ -468,6 +523,7 @@ echo "  token-jet-tui              # Launch TUI"
 echo ""
 echo "From this workstation:"
 echo "  token-jet-tui              # SSH to Jetson and launch TUI"
+echo "  http://${JETSON_IP}:30141  # pi-web browser UI (running as a background service)"
 echo ""
 echo "To upgrade later:"
 echo "  ./scripts/install.sh ${JETSON_IP} --upgrade --user ${JETSON_USER}"
