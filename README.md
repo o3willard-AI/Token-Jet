@@ -60,13 +60,17 @@ The install script handles all of this automatically — you don't need to do it
 | What | Where it lands |
 |------|---------------|
 | `cmake`, `build-essential`, `cuda-nvcc`, `libcublas-dev` | System packages (via `apt`) |
+| Node.js 22 | System package (via NodeSource — required by pi and pi-web) |
 | llama.cpp (CUDA build) | `~/llama.cpp/` |
 | PrismML llama.cpp fork | `~/llama.cpp-prism/` (for Bonsai ternary models) |
 | Token-Jet TUI | `~/.local/share/token-jet/` (isolated Python venv) |
 | `jetson-infer` utility | `~/bin/jetson-infer` |
 | `token-jet` launcher | `~/.local/bin/token-jet` |
+| pi coding agent | `~/.npm-global/bin/pi` (global npm install) |
+| pi-web browser UI | `~/.npm-global/bin/pi-web` (global npm install) |
 | Default config | `~/.config/token-jet/config.toml` |
-| Systemd service | Auto-starts inference server on boot |
+| `jetson-infer` systemd service | Auto-starts inference server on boot |
+| `pi-web` systemd service | Auto-starts browser UI on boot, port 30141 |
 
 ---
 
@@ -92,13 +96,15 @@ curl -sL https://raw.githubusercontent.com/o3willard-AI/Token-Jet/main/scripts/i
 **What happens next** (the script runs unattended — expect 30–45 minutes total):
 
 1. Clones this repo to `~/Token-Jet`
-2. Installs `cmake` and `build-essential` if missing
-3. Detects your CUDA version and architecture automatically
-4. Clones and builds `llama.cpp` from source with CUDA support *(~15–25 min)*
-5. Clones and builds the PrismML fork for Bonsai GPU support *(~10–15 min)*
-6. Installs the TUI into an isolated Python venv
-7. Deploys `jetson-infer` and creates the `token-jet` launcher
-8. Writes a default config and enables the systemd service
+2. Installs `cmake`, `build-essential`, and `cuda-nvcc` if missing
+3. Installs Node.js 22 via NodeSource if not already present
+4. Detects your CUDA version and architecture automatically
+5. Clones and builds `llama.cpp` from source with CUDA support *(~15–25 min)*
+6. Clones and builds the PrismML fork for Bonsai GPU support *(~10–15 min)*
+7. Installs the TUI into an isolated Python venv
+8. Deploys `jetson-infer` and creates the `token-jet` launcher
+9. Installs the pi coding agent and pi-web browser UI via npm
+10. Writes a default config, enables the inference server service, and starts the pi-web service
 
 When it finishes:
 
@@ -214,27 +220,88 @@ The fastest option at 31 t/s with a 1.1 GB footprint. Claude-distilled. Useful f
 
 ## pi Coding Agent Integration
 
-Token-Jet ships a provider extension for the [pi coding agent](https://github.com/earendil-works/pi) that registers your Jetson as a local model source with native tool support.
+Token-Jet installs and fully configures the [pi coding agent](https://github.com/earendil-works/pi) as part of the standard install. A provider extension registers your Jetson as a local model source and adds native tools and slash commands that let you manage models from within pi without leaving the terminal.
 
 ### What it adds
 
-- **Jetson provider** — pi discovers your local model automatically on startup, including context window size
-- **`web_search` tool** — the model can search DuckDuckGo directly without needing a bash workaround
-- **`fetch_url` tool** — the model can read any URL as markdown text
+**Tools the model can call** (invoked by the model in response to natural language requests):
+
+| Tool | What it does |
+|------|-------------|
+| `web_search` | Search DuckDuckGo — returns titles, links, and snippets, no API key needed |
+| `fetch_url` | Fetch any URL and return its readable text as Markdown |
+| `list_models` | List all downloaded GGUF models and show which one is currently active |
+| `switch_model` | Stop the current model and restart the server with a different one |
+
+**Slash commands** (typed directly by you in the pi input bar):
+
+| Command | What it does |
+|---------|-------------|
+| `/models` | Show all downloaded models with sizes and active marker |
+| `/switch` | Interactive model picker — select with arrow keys, or pass a filename directly: `/switch qwen3.5-4B-super-coder.Q4_0.gguf` |
+
+After a model switch completes, type `/quit` and reopen pi — your session is restored and pi reconnects to the new model.
 
 ### Setup
 
+The install script handles everything automatically. When complete, SSH into the Jetson and run `pi` — the Jetson provider is already configured:
+
 ```bash
-# On your workstation, point pi at the Jetson
-# In pi settings, add a custom provider pointing to:
-#   http://<jetson-ip>:1234/v1
+ssh sblanken@<jetson-ip>
+pi
 ```
 
-The install script deploys `ddg-search` and `fetch-url` CLI wrappers to `/usr/local/bin/` on the Jetson. These are used by the native tools and can also be called directly from a bash session.
+Or use pi-web (see below) to open a browser session without SSHing.
+
+The `ddg-search` and `fetch-url` CLI wrappers are installed to `/usr/local/bin/` and can also be called directly from any shell session.
 
 ### Thinking model behaviour
 
 All models run with `--reasoning auto`, which routes `<think>...</think>` tokens into a separate reasoning field. Pi surfaces this as a collapsible reasoning trace — the actual reply appears cleanly in the chat panel regardless of how much the model thought.
+
+---
+
+## pi-web Browser UI
+
+The installer also sets up [pi-web](https://github.com/agegr/pi-web) — a browser-based frontend for pi that runs as a background service on the Jetson and is accessible from any machine on your local network.
+
+### Access
+
+Once the installer finishes, open this URL in your workstation browser:
+
+```
+http://<jetson-ip>:30141
+```
+
+For example: `http://192.168.1.91:30141`
+
+No login, no tunnel, no extra setup — pi-web reads pi's session files directly from `~/.pi/agent/sessions/` on the Jetson.
+
+### What pi-web gives you
+
+- Browse all previous pi conversations by project, without digging through terminal history
+- Continue any session or fork it into a new direction from any earlier message
+- Full file browser alongside the chat — preview source, docs, images, and PDFs
+- Model configuration panel — switch providers, add API keys, test models from the UI
+- Context usage, cost, and compaction state visible from the top bar
+
+### How it runs
+
+pi-web starts automatically as a systemd user service on every boot:
+
+```bash
+systemctl --user status pi-web      # check status
+systemctl --user restart pi-web     # restart after config changes
+journalctl --user -u pi-web -f      # stream logs
+```
+
+The service binds to `0.0.0.0:30141` so it's reachable from your workstation. It has no application-level authentication — only use it on a trusted local network.
+
+pi-web is pulled directly from the upstream npm package (`@agegr/pi-web`) during install, so you always get the latest release. To update it independently:
+
+```bash
+npm install -g @agegr/pi-web && systemctl --user restart pi-web
+```
 
 ---
 
@@ -338,11 +405,12 @@ startup_model = "/home/ubuntu/models/qwen3.5-4B-super-coder.Q4_0.gguf"
 ```
 Token-Jet/
 ├── jetson-infer              # Inference server utility (runs on the Jetson)
-├── jetson-infer.service      # Systemd service file
+├── jetson-infer.service      # Systemd user service — auto-starts inference server
+├── pi-web.service            # Systemd user service — auto-starts pi-web on port 30141
 ├── tui/                      # Terminal dashboard (Textual)
 │   └── token_jet_tui/
 ├── pi/                       # pi coding agent extension
-│   ├── jetson-provider.ts    # Provider + web_search / fetch_url tools
+│   ├── jetson-provider.ts    # Provider + tools + /models and /switch commands
 │   └── ddg-search/           # DuckDuckGo search skill (Node.js)
 ├── scripts/
 │   ├── install-local.sh      # Install directly on the Jetson (recommended)
