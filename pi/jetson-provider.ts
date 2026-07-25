@@ -217,7 +217,7 @@ export default function (pi: ExtensionAPI) {
       const success = result.status === 0;
 
       const text = success
-        ? `${output}\n\n---\nModel switched. To reconnect pi to the new model:\n  1. Type /exit to end this session\n  2. Reopen pi from your terminal — your session will be restored.`
+        ? `${output}\n\n---\nModel switched. To reconnect pi to the new model:\n  1. Type /quit to end this session\n  2. Reopen pi from your terminal — your session will be restored.`
         : `Switch failed (exit ${result.status ?? "timeout"}):\n${output}`;
 
       return { content: [{ type: "text" as const, text }], details: {} };
@@ -330,7 +330,7 @@ export default function (pi: ExtensionAPI) {
         await execFileAsync(bin, ["switch", chosen], { timeout: 120000 });
         ctx.ui.setStatus("model-switch", undefined);
         ctx.ui.notify(
-          `Switched to ${chosen}.\nType /exit then reopen pi — your session will be restored.`,
+          `Switched to ${chosen}.\nType /quit then reopen pi — your session will be restored.`,
           "info"
         );
       } catch (err: any) {
