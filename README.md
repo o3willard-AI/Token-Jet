@@ -108,6 +108,23 @@ source ~/.bashrc
 token-jet
 ```
 
+> **Expected warnings during the pi install step**
+>
+> Near the end of the install you'll see output like this — it looks alarming but is completely normal:
+>
+> ```
+> WARNING: pi-mcp-adapter install failed
+> WARNING: @plannotator/pi-extension install failed
+> WARNING: @juicesharp/rpiv-ask-user-question install failed
+> WARNING: pi-knowledge install failed
+> ```
+>
+> The pi coding agent has an ecosystem of third-party extensions. When you run `pi install` it tries to install all of them, including ones it can't reach or that have version conflicts. These four are optional community plugins that Token-Jet doesn't use. Their failure has no effect on the tools that matter: `web_search`, `fetch_url`, model switching, Wi-Fi management, and the pi-web browser UI all install and run correctly.
+>
+> The `npm audit` lines warning about "moderate severity vulnerabilities" are similarly benign — they refer to indirect dependencies inside the pi package itself, not anything introduced by Token-Jet.
+>
+> If the install finishes and `which pi` returns a path, the install succeeded.
+
 ### Option 2 — From a Mac, Linux, or Windows (WSL) workstation
 
 If you'd rather drive the install remotely, clone the repo on your **workstation** and point the installer at your Jetson's IP address:
