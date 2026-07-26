@@ -84,10 +84,12 @@ if [[ "$MODE" == "uninstall" ]]; then
     sudo systemctl stop    jetson-clocks-boot 2>/dev/null || true
     sudo systemctl disable jetson-clocks-boot 2>/dev/null || true
     sudo rm -f /etc/systemd/system/jetson-clocks-boot.service
+    sudo rm -f /etc/sudoers.d/token-jet-wifi
     sudo systemctl daemon-reload 2>/dev/null || true
     rm -rf  "$INSTALL_BASE"
     rm -f   "$BIN_DIR/token-jet" "$BIN_DIR/token-jet-tui"
     rm -f   ~/bin/jetson-infer ~/bin/jetson-infer.service
+    rm -f   ~/.pi/agent/extensions/wifi-manager.ts
     echo ""
     echo "Uninstalled."
     echo "  llama.cpp preserved at: ~/llama.cpp"
@@ -410,6 +412,9 @@ npm --prefix "${REPO_ROOT}/pi/ddg-search" install --ignore-scripts 2>/dev/null \
 mkdir -p ~/.pi/agent/extensions/
 cp "${REPO_ROOT}/pi/jetson-provider.ts" ~/.pi/agent/extensions/jetson-provider.ts
 echo "  jetson-provider: ~/.pi/agent/extensions/jetson-provider.ts"
+cp "${REPO_ROOT}/pi/wifi-manager.ts" ~/.pi/agent/extensions/wifi-manager.ts
+echo "  wifi-manager: ~/.pi/agent/extensions/wifi-manager.ts"
+chmod +x "${REPO_ROOT}/pi/wifi-manager/wifi.py"
 
 # Deploy default settings only on first install; preserve user customisations on upgrade.
 if [[ ! -f ~/.pi/agent/settings.json ]]; then
@@ -439,6 +444,19 @@ if d.get("jetson-local", {}).get("key") != "none":
 else:
     print("  pi auth: auth.json already configured")
 PYEOF
+
+# Sudoers rule — grants NOPASSWD for nmcli so the wifi-manager skill can toggle
+# the radio and connect to networks from a non-interactive SSH/pi session.
+SUDOERS_FILE="/etc/sudoers.d/token-jet-wifi"
+SUDOERS_RULE="${JETSON_USER} ALL=(ALL) NOPASSWD: /usr/bin/nmcli"
+if ! sudo grep -qF "$SUDOERS_RULE" "$SUDOERS_FILE" 2>/dev/null; then
+    printf '%s\n' "$SUDOERS_RULE" \
+        | sudo tee "$SUDOERS_FILE" > /dev/null
+    sudo chmod 440 "$SUDOERS_FILE"
+    echo "  sudoers: /etc/sudoers.d/token-jet-wifi (nmcli NOPASSWD)"
+else
+    echo "  sudoers: already configured"
+fi
 
 # ── Pi-web service ────────────────────────────────────────────────────────────
 # Deploy the pi-web systemd user service on every install/upgrade so changes
@@ -497,6 +515,46 @@ fi
 # Refresh the system service file on every install/upgrade so changes land.
 sudo cp "${REPO_ROOT}/jetson-clocks-boot.service" /etc/systemd/system/jetson-clocks-boot.service
 sudo systemctl daemon-reload 2>/dev/null || true
+
+# ── USB device mode (RNDIS-only) ─────────────────────────────────────────────
+# NVIDIA's default enables ACM + UMS + ECM alongside RNDIS. On Windows, ACM
+# (USB serial) and UMS (16 MB FAT image) cause the host to loop-enumerate the
+# composite gadget indefinitely. Fix: disable everything except RNDIS.
+# bcdDevice 0x0003 forces Windows to flush its stale composite-device driver
+# cache, picking up the new single-function RNDIS configuration cleanly.
+echo "Configuring USB device mode (RNDIS-only)..."
+USB_CFG="/opt/nvidia/l4t-usb-device-mode/nv-l4t-usb-device-mode-config.sh"
+USB_START="/opt/nvidia/l4t-usb-device-mode/nv-l4t-usb-device-mode-start.sh"
+USB_CHANGED=false
+if [[ -f "$USB_CFG" ]]; then
+    if grep -qE '^enable_(acm|ums|ecm)=1' "$USB_CFG"; then
+        sudo sed -i \
+            -e 's/^enable_acm=1/enable_acm=0/' \
+            -e 's/^enable_ums=1/enable_ums=0/' \
+            -e 's/^enable_ecm=1/enable_ecm=0/' \
+            "$USB_CFG"
+        USB_CHANGED=true
+        echo "  usb-mode config: ACM/UMS/ECM disabled (RNDIS-only)"
+    else
+        echo "  usb-mode config: already configured"
+    fi
+else
+    echo "  usb-mode config: not found, skipping (non-Jetson or service not installed)"
+fi
+if [[ -f "$USB_START" ]]; then
+    if grep -q '0x0002' "$USB_START"; then
+        sudo sed -i 's/0x0002/0x0003/' "$USB_START"
+        USB_CHANGED=true
+        echo "  usb-mode start: bcdDevice bumped to 0x0003"
+    else
+        echo "  usb-mode start: bcdDevice already at 0x0003"
+    fi
+fi
+if $USB_CHANGED; then
+    sudo systemctl restart nv-l4t-usb-device-mode 2>/dev/null \
+        && echo "  nv-l4t-usb-device-mode: restarted" \
+        || echo "  nv-l4t-usb-device-mode: restart skipped (service not active)"
+fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""

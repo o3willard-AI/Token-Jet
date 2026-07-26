@@ -163,9 +163,11 @@ if [[ "$MODE" == "uninstall" ]]; then
         rm -f ~/.config/systemd/user/pi-web.service
         systemctl --user daemon-reload 2>/dev/null || true
 
+        echo '${JETSON_PASS}' | sudo -S rm -f /etc/sudoers.d/token-jet-wifi
         rm -rf '${INSTALL_BASE}'
         rm -f '${BIN_DIR}/token-jet-tui'
         rm -f ~/bin/jetson-infer ~/bin/jetson-infer.service
+        rm -f ~/.pi/agent/extensions/wifi-manager.ts
 
         echo 'Files removed.'
         echo ''
@@ -360,6 +362,27 @@ echo "Deploying pi provider extension..."
 _ssh "mkdir -p ~/.pi/agent/extensions/"
 cat "${REPO_ROOT}/pi/jetson-provider.ts" | _pipe_to "~/.pi/agent/extensions/jetson-provider.ts"
 echo "  jetson-provider.ts: OK"
+_ssh "mkdir -p ~/Token-Jet/pi/wifi-manager/"
+cat "${REPO_ROOT}/pi/wifi-manager/wifi.py" | _pipe_to "~/Token-Jet/pi/wifi-manager/wifi.py"
+_ssh "chmod +x ~/Token-Jet/pi/wifi-manager/wifi.py"
+cat "${REPO_ROOT}/pi/wifi-manager.ts" | _pipe_to "~/.pi/agent/extensions/wifi-manager.ts"
+echo "  wifi-manager.ts: OK"
+
+echo "Installing Wi-Fi sudoers rule..."
+_ssh "
+    RULE='${JETSON_USER} ALL=(ALL) NOPASSWD: /usr/bin/nmcli'
+    FILE='/etc/sudoers.d/token-jet-wifi'
+    if echo '${JETSON_PASS}' | sudo -S grep -qF \"\$RULE\" \"\$FILE\" 2>/dev/null; then
+        echo '  sudoers: already configured'
+    else
+        TMPF=\$(mktemp)
+        printf '%s\n' \"\$RULE\" > \"\$TMPF\"
+        echo '${JETSON_PASS}' | sudo -S cp \"\$TMPF\" \"\$FILE\"
+        echo '${JETSON_PASS}' | sudo -S chmod 440 \"\$FILE\"
+        rm -f \"\$TMPF\"
+        echo '  sudoers: /etc/sudoers.d/token-jet-wifi installed'
+    fi
+"
 
 if [[ ! -f "${REPO_ROOT}/pi/settings.json" ]] || _ssh "[[ -f ~/.pi/agent/settings.json ]]"; then
     echo "  pi settings: preserved (already exists)"
@@ -399,6 +422,50 @@ _ssh "
         systemctl --user enable pi-web 2>/dev/null || true
         systemctl --user start  pi-web 2>/dev/null || true
         echo '  pi-web service: enabled + started'
+    fi
+"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# USB device mode (RNDIS-only)
+# NVIDIA's default enables ACM + UMS + ECM alongside RNDIS. On Windows, ACM
+# (USB serial) and UMS (16 MB FAT image) cause the host to loop-enumerate the
+# composite gadget indefinitely. Fix: disable everything except RNDIS.
+# bcdDevice 0x0003 forces Windows to flush its stale composite-device driver
+# cache, picking up the new single-function RNDIS configuration cleanly.
+# ─────────────────────────────────────────────────────────────────────────────
+echo "Configuring USB device mode (RNDIS-only)..."
+_ssh "
+    USB_CFG='/opt/nvidia/l4t-usb-device-mode/nv-l4t-usb-device-mode-config.sh'
+    USB_START='/opt/nvidia/l4t-usb-device-mode/nv-l4t-usb-device-mode-start.sh'
+    USB_CHANGED=false
+    if [[ -f \"\$USB_CFG\" ]]; then
+        if grep -qE '^enable_(acm|ums|ecm)=1' \"\$USB_CFG\"; then
+            echo '${JETSON_PASS}' | sudo -S sed -i \
+                -e 's/^enable_acm=1/enable_acm=0/' \
+                -e 's/^enable_ums=1/enable_ums=0/' \
+                -e 's/^enable_ecm=1/enable_ecm=0/' \
+                \"\$USB_CFG\"
+            USB_CHANGED=true
+            echo '  usb-mode config: ACM/UMS/ECM disabled (RNDIS-only)'
+        else
+            echo '  usb-mode config: already configured'
+        fi
+    else
+        echo '  usb-mode config: not found, skipping (service not installed)'
+    fi
+    if [[ -f \"\$USB_START\" ]]; then
+        if grep -q '0x0002' \"\$USB_START\"; then
+            echo '${JETSON_PASS}' | sudo -S sed -i 's/0x0002/0x0003/' \"\$USB_START\"
+            USB_CHANGED=true
+            echo '  usb-mode start: bcdDevice bumped to 0x0003'
+        else
+            echo '  usb-mode start: bcdDevice already at 0x0003'
+        fi
+    fi
+    if \$USB_CHANGED; then
+        echo '${JETSON_PASS}' | sudo -S systemctl restart nv-l4t-usb-device-mode 2>/dev/null \
+            && echo '  nv-l4t-usb-device-mode: restarted' \
+            || echo '  nv-l4t-usb-device-mode: restart skipped (service not active)'
     fi
 "
 

@@ -71,6 +71,8 @@ The install script handles all of this automatically — you don't need to do it
 | Default config | `~/.config/token-jet/config.toml` |
 | `jetson-infer` systemd service | Auto-starts inference server on boot |
 | `pi-web` systemd service | Auto-starts browser UI on boot, port 30141 |
+| Wi-Fi sudoers rule | `/etc/sudoers.d/token-jet-wifi` — lets the pi wifi-manager skill run `nmcli` without a password prompt |
+| USB device mode fix | Patches NVIDIA L4T USB gadget config to RNDIS-only — prevents Windows from loop-enumerating the composite ACM+UMS+ECM gadget |
 
 ---
 
@@ -225,6 +227,13 @@ Token-Jet installs and fully configures the [pi coding agent](https://github.com
 | `fetch_url` | Fetch any URL and return its readable text as Markdown |
 | `list_models` | List all downloaded GGUF models and show which one is currently active |
 | `switch_model` | Stop the current model and restart the server with a different one |
+| `wifi_status` | Show Wi-Fi radio state, connected network, and IP address |
+| `wifi_scan` | Scan for nearby networks — returns SSID, signal strength, security type, and saved status |
+| `wifi_on` | Enable the Wi-Fi radio |
+| `wifi_off` | Disable Wi-Fi for air-gapped USB-only operation |
+| `wifi_connect` | Connect to a network by SSID, with optional WPA/WPA2/WPA3 passphrase |
+| `wifi_disconnect` | Disconnect from the current network without disabling the radio |
+| `wifi_forget` | Delete a saved connection profile so the Jetson no longer auto-joins that network |
 
 **Slash commands** (typed directly by you in the pi input bar):
 
@@ -232,8 +241,32 @@ Token-Jet installs and fully configures the [pi coding agent](https://github.com
 |---------|-------------|
 | `/models` | Show all downloaded models with sizes and active marker |
 | `/switch` | Interactive model picker — select with arrow keys, or pass a filename directly: `/switch qwen3.5-4B-super-coder.Q4_0.gguf` |
+| `/wifi` | Interactive Wi-Fi manager — scan networks, connect, disconnect, or toggle the radio |
 
 After a model switch completes, type `/quit` and reopen pi — your session is restored and pi reconnects to the new model.
+
+### Wi-Fi Management
+
+The `wifi-manager` extension lets you control the Jetson's Wi-Fi from inside a pi chat session. This is especially useful for switching between networked and air-gapped USB-only operation.
+
+**Using `/wifi`:** Triggers a live scan, shows a signal-sorted picker of nearby networks, and handles the connection directly:
+
+- **Connected network selected** → offers to disconnect
+- **Saved profile or open network** → connects immediately, no password needed
+- **New WPA/WPA2/WPA3 network** → shows a prompt: tell the model the passphrase and it calls `wifi_connect` automatically
+- **"Disable Wi-Fi radio" option** → one step to switch to air-gapped USB-only mode
+
+**Asking the model directly:**
+
+```
+"What Wi-Fi networks are nearby?"          → wifi_scan
+"Connect me to GuestNetwork"               → wifi_connect (open/saved)
+"Connect to HomeWiFi with password abc123" → wifi_connect with passphrase
+"Turn off Wi-Fi"                           → wifi_off
+"Forget the Starbucks network"             → wifi_forget
+```
+
+Wi-Fi control is handled by `nmcli` with a dedicated sudoers rule (`/etc/sudoers.d/token-jet-wifi`) installed automatically — no interactive password prompt in SSH sessions.
 
 ### Setup
 
@@ -353,17 +386,21 @@ jetson-infer stop && jetson-infer start
 
 ## Air-Gapped USB Mode
 
-Token-Jet supports fully air-gapped operation over a single USB-C cable with no drivers to install on the client machine. This is enabled automatically by the NVIDIA L4T USB device mode service that ships with JetPack — no extra setup is needed after install.
+Token-Jet supports fully air-gapped operation over a single USB-C cable. The NVIDIA L4T USB device mode service ships with JetPack and is reconfigured automatically by the installer — no extra setup is needed after install.
 
 ### How it works
 
-When a USB-C cable connects the Jetson to a Mac or Windows PC:
+When a USB-C cable connects the Jetson to a Windows PC or Linux machine:
 
-1. The Jetson presents itself as a standard USB Ethernet adapter (CDC-NCM protocol)
-2. The client machine sees a new network interface and receives IP `192.168.55.100` via DHCP — automatically, with no prompts
+1. The Jetson presents itself as a USB Ethernet adapter (RNDIS protocol)
+2. The client receives IP `192.168.55.100` via DHCP — automatically, with no prompts
 3. The Jetson's inference server and pi-web are immediately reachable at `192.168.55.1`
 
-**macOS** and **Windows 10/11 (build 18362+, released 2019)** support CDC-NCM natively — no drivers, no software install on the client side. Linux also works natively.
+**Windows 10/11** and **Linux** support RNDIS natively — no drivers, no software install on the client side.
+
+> **macOS note:** macOS does not include a built-in RNDIS driver. macOS users can install [HoRNDIS](https://github.com/jwise/HoRNDIS) for USB-tethering support, or connect via Wi-Fi or Ethernet instead.
+
+> **Why RNDIS and not CDC-NCM?** NVIDIA's default configures a composite USB gadget (RNDIS + ACM serial + mass-storage + ECM) that causes Windows to loop-enumerate the device indefinitely. The installer patches the config to RNDIS-only, which gives stable connectivity on Windows while keeping Linux working.
 
 ### Endpoints over USB
 
@@ -443,8 +480,11 @@ Token-Jet/
 ├── pi-web.service            # Systemd user service — auto-starts pi-web on port 30141
 ├── tui/                      # Terminal dashboard (Textual)
 │   └── token_jet_tui/
-├── pi/                       # pi coding agent extension
+├── pi/                       # pi coding agent extensions
 │   ├── jetson-provider.ts    # Provider + tools + /models and /switch commands
+│   ├── wifi-manager.ts       # Wi-Fi management tools + /wifi command
+│   ├── wifi-manager/
+│   │   └── wifi.py           # nmcli wrapper — scan, connect, on/off, forget
 │   └── ddg-search/           # DuckDuckGo search skill (Node.js)
 ├── scripts/
 │   ├── install-local.sh      # Install directly on the Jetson (recommended)
