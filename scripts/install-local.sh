@@ -59,6 +59,15 @@ elif [[ "$MODE" == "upgrade" ]]; then
     echo "Updating Token-Jet repo..."
     git -C "$REPO_ROOT" pull --ff-only
     echo "  repo updated OK"
+    # Re-exec the updated script. git pull replaces the file on a new inode;
+    # bash holds the old inode open and would silently skip any newly added
+    # sections. The sentinel variable prevents an infinite re-exec loop.
+    if [[ "${_TOKEN_JET_REEXECED:-}" != "1" ]] && [[ "$PIPED" == "false" ]]; then
+        export _TOKEN_JET_REEXECED=1
+        _reexec_args=(--upgrade)
+        $BUILD_PRISM || _reexec_args+=(--no-prism-build)
+        exec "$REPO_ROOT/scripts/install-local.sh" "${_reexec_args[@]}"
+    fi
 fi
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
