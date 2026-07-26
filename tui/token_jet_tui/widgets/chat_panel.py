@@ -1,9 +1,10 @@
-"""Quick chat panel — multi-turn conversation with the loaded model."""
+"""Model response check panel — quick sanity-check chat against the loaded model."""
 
 from __future__ import annotations
 
 import json
 import logging
+import random
 import subprocess
 import time
 import urllib.request
@@ -19,6 +20,7 @@ from token_jet_tui.store import RootStore
 log = logging.getLogger(__name__)
 
 SLASH_HELP = """\
+[bold]/test[/bold]     — send a built-in ~1000-token benchmark prompt (cycles semi-randomly)
 [bold]/clear[/bold]   — clear chat history
 [bold]/help[/bold]    — show this list
 [bold]/model[/bold]   — show loaded model name
@@ -29,6 +31,46 @@ SLASH_HELP = """\
 [bold]Ctrl+Q[/bold]   — quit
 [bold]Ctrl+V[/bold]   — paste clipboard  (or Shift+Insert / Ctrl+Shift+V)\
 """
+
+# Five prompts engineered to produce roughly 1 000 tokens of model output.
+# Used by the /test slash command to verify the loaded model is functional
+# and to get a consistent throughput reading across model switches.
+_TEST_PROMPTS = [
+    (
+        "Explain how transformer self-attention works. Cover query, key, and value matrices; "
+        "scaled dot-product attention; multi-head attention; and why positional encoding is "
+        "necessary. Walk through step by step how a single token attends to every other token "
+        "in the sequence, and explain what the model learns to encode in each attention head."
+    ),
+    (
+        "Write a complete Python implementation of a doubly linked list. Include Node and "
+        "LinkedList classes with insert_front, insert_back, insert_after, delete, search, "
+        "reverse, and __str__ methods. Add type hints and docstrings to every method, then "
+        "write a short demonstration block at the bottom that exercises each operation and "
+        "prints the list state after each one."
+    ),
+    (
+        "Describe the history of Unix and Linux from Bell Labs in 1969 through today. Cover "
+        "Thompson and Ritchie's original work, the BSD split and legal battles, Stallman and "
+        "the GNU Project, Linus Torvalds' 1991 announcement, how the GPL shaped open source "
+        "development, and why Linux ultimately dominated servers, embedded systems, and mobile "
+        "while commercial Unix faded."
+    ),
+    (
+        "Explain TCP/IP networking from first principles. Start with why packet-switched "
+        "networks are unreliable and what problem TCP solves. Cover the three-way handshake, "
+        "sequence numbers, acknowledgements, sliding-window flow control, slow-start congestion "
+        "avoidance, and TIME_WAIT state. Finish by tracing a complete HTTP request from SYN "
+        "to FIN through every relevant TCP state transition."
+    ),
+    (
+        "Compare supervised learning, unsupervised learning, and reinforcement learning. For "
+        "each: define the problem formulation precisely, give two concrete industry examples, "
+        "name three commonly used algorithms with one sentence on how each works, and describe "
+        "the most common failure mode that causes practitioners to switch paradigms. Close with "
+        "a practical decision guide for choosing between the three."
+    ),
+]
 
 
 class ChatInput(Static):
@@ -133,6 +175,11 @@ class ChatPanel(Container):
     .panel-title {
         text-style: bold;
         color: $text-muted;
+    }
+    #chat-description {
+        color: $text-muted;
+        text-style: italic;
+        height: 1;
         padding-bottom: 1;
     }
     #chat-log {
@@ -166,13 +213,21 @@ class ChatPanel(Container):
         self._spin_timer = None
         self._request_start: float = 0.0
         self._request_timeout: int = 600
+        self._last_test_idx: int = -1
 
     def compose(self):
-        yield Static("QUICK CHAT", classes="panel-title")
+        yield Static("MODEL RESPONSE CHECK", classes="panel-title")
+        yield Static(
+            "  Sanity-check the loaded model — not for real work. "
+            "Use [bold]pi[/bold] or [bold]pi-web[/bold] for actual inference sessions.",
+            id="chat-description",
+        )
         yield RichLog(id="chat-log", markup=True, highlight=False, wrap=True)
         yield Static("", id="chat-status")
-        yield Static("  Enter to send · Ctrl+V / Shift+Insert to paste · /help for commands",
-                     id="chat-input-hint")
+        yield Static(
+            "  Enter to send · /test for a benchmark prompt · /help for all commands",
+            id="chat-input-hint",
+        )
         yield ChatInput()
 
     def on_mount(self) -> None:
@@ -197,8 +252,11 @@ class ChatPanel(Container):
             )
             self._chat_log.write("")
             self._chat_log.write(
-                "[dim]Recommended: MiniCPM5-1B-Thinking — 1.1 GB, 31 t/s[/dim]"
+                "[dim]Recommended: Qwen3.5-4B-Coder — 2.5 GB, 20 t/s, agent-capable[/dim]"
             )
+            self._chat_log.write("")
+            self._chat_log.write("[dim]Once a model is running, use [bold]/test[/bold] to verify it responds correctly,[/dim]")
+            self._chat_log.write("[dim]then switch to [bold]pi[/bold] or [bold]pi-web[/bold] for real inference work.[/dim]")
 
     def send_message(self) -> None:
         log.debug("send_message called")
@@ -223,14 +281,27 @@ class ChatPanel(Container):
             log.debug("send_message: tps=%.1f computed timeout=%ds", tps or 0, req_timeout)
             self._start_spinner(req_timeout)
             log.debug("send_message: spawning _do_request worker")
-            self._do_request(self._history[:], req_timeout)
+            self._do_request(self._history[:], req_timeout, max_tokens=8192)
         except Exception:
             log.exception("send_message raised")
+
+    def _next_test_prompt(self) -> str:
+        candidates = [i for i in range(len(_TEST_PROMPTS)) if i != self._last_test_idx]
+        self._last_test_idx = random.choice(candidates)
+        return _TEST_PROMPTS[self._last_test_idx]
 
     def _handle_slash(self, cmd: str) -> None:
         log.debug("_handle_slash: %r", cmd)
         verb = cmd.split()[0].lower()
-        if verb == "/clear":
+        if verb == "/test":
+            prompt = self._next_test_prompt()
+            self._chat_log.write(f"[bold cyan]You (test #{self._last_test_idx + 1}):[/bold cyan] {prompt}")
+            self._history.append({"role": "user", "content": prompt})
+            tps = self._store.server_tps.value
+            req_timeout = max(60, min(900, int(1500 / tps * 1.5))) if tps and tps > 0 else 900
+            self._start_spinner(req_timeout)
+            self._do_request(self._history[:], req_timeout, max_tokens=1500)
+        elif verb == "/clear":
             self._history.clear()
             self._chat_log.clear()
             self._chat_status.update("")
@@ -291,15 +362,16 @@ class ChatPanel(Container):
             log.exception("_tick_spinner raised")
 
     @work(thread=True, name="do_request", exit_on_error=False)
-    def _do_request(self, history: list[dict], req_timeout: int) -> tuple:
-        log.debug("_do_request: starting, %d messages, timeout=%ds", len(history), req_timeout)
+    def _do_request(self, history: list[dict], req_timeout: int, max_tokens: int = 8192) -> tuple:
+        log.debug("_do_request: starting, %d messages, timeout=%ds, max_tokens=%d",
+                  len(history), req_timeout, max_tokens)
         host = self._store.config.server_host
         port = self._store.config.server_port
         start = time.monotonic()
         try:
             body = {
                 "messages": history,
-                "max_tokens": 8192,
+                "max_tokens": max_tokens,
                 "temperature": 0.3,
             }
             req = urllib.request.Request(
