@@ -27,6 +27,7 @@ from pathlib import Path
 # ── Configuration ──────────────────────────────────────────
 HOST = "0.0.0.0"
 PORT = 1234
+PI_WEB_PORT = 30141
 SAFETY_MARGIN_MB = 512  # Leave 512 MB for OS
 MIN_FREE_MB = 256       # Minimum free memory after loading
 HEALTH_CHECK_INTERVAL = 10  # Seconds between health checks
@@ -439,36 +440,55 @@ def stop_server():
             pass
 
 
+def _get_local_ip() -> str:
+    """Return the primary LAN IP by probing a UDP socket (no traffic sent)."""
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return HOST
+
+
 def show_status():
     """Show current server status."""
+    import urllib.request
+    local_ip = _get_local_ip()
+
     if is_running():
         print("Server: RUNNING")
-        print(f"URL:   http://{HOST}:{PORT}")
-        print(f"Chat:  http://{HOST}:{PORT}/v1/chat/completions")
-        
+        print(f"URL:   http://{local_ip}:{PORT}")
+        print(f"Chat:  http://{local_ip}:{PORT}/v1/chat/completions")
+
         pid = get_pid()
         if pid:
             print(f"PID:   {pid}")
-        
-        # Try to get model info from the server
+
         try:
-            import urllib.request
             resp = json.loads(urllib.request.urlopen(
                 urllib.request.Request(f"http://127.0.0.1:{PORT}/v1/models"),
                 timeout=5).read())
             for m in resp.get("data", []):
                 print(f"Model: {m.get('id', 'unknown')}")
-        except:
+        except Exception:
             pass
-        
-        # Memory info
+
         free_mb = get_free_memory_mb()
         print(f"Free:  {free_mb} MB")
     else:
         print("Server: NOT RUNNING")
         free_mb = get_free_memory_mb()
         print(f"Free:  {free_mb} MB")
-        print()
+
+    try:
+        urllib.request.urlopen(f"http://127.0.0.1:{PI_WEB_PORT}", timeout=2)
+        pi_status = "running"
+    except Exception:
+        pi_status = "not running"
+    print(f"pi-web: http://{local_ip}:{PI_WEB_PORT}  [{pi_status}]")
         print("Available models:")
         show_models()
 

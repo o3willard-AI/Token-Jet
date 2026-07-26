@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import socket
 import subprocess
 
 from textual import work
@@ -36,9 +37,21 @@ class JetsonPanel(Container):
     def compose(self):
         yield Static("JETSON STATUS", classes="panel-title")
         yield Static("Loading...", id="jetson-stats")
+        yield Static("", id="pi-web-url")
 
     def on_mount(self) -> None:
+        self._set_pi_web_url()
         self.set_interval(3, self._schedule_refresh)
+
+    def _set_pi_web_url(self) -> None:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            ip = "localhost"
+        self.query_one("#pi-web-url").update(f"  Browser UI: http://{ip}:30141")
 
     def _schedule_refresh(self) -> None:
         self._refresh_worker()
