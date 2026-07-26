@@ -2,7 +2,7 @@
   "model": "jetson-local/local",
   "enableInstallTelemetry": false,
   "PI_SKIP_VERSION_CHECK": true,
-  "extensions": ["~/.pi/agent/extensions/jetson-provider.ts"],
+  "extensions": ["~/.pi/agent/extensions/jetson-provider.ts", "~/.pi/agent/extensions/wifi-manager.ts"],
   "skills": ["~/Token-Jet/pi/ddg-search"],
   "thinkingBudgets": {
     "minimal": 256,

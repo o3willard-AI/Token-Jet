@@ -531,7 +531,8 @@ def usb_status():
         print(f"  pi-web UI:      http://192.168.55.1:30141      [not running]")
 
     print()
-    print("Client setup — no drivers needed on macOS or Windows 10/11 (build 18362+):")
+    print("Client setup — Windows 10/11 (build 18362+): no drivers needed.")
+    print("  macOS: install HoRNDIS first — https://github.com/jwise/HoRNDIS")
     print("  1. Plug USB-C cable: Jetson  →  Mac or Windows PC")
     print("  2. Wait ~5 sec for the USB Ethernet adapter to appear")
     print("  3. Browser UI:        http://192.168.55.1:30141")
