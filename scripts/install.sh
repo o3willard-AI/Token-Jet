@@ -455,18 +455,16 @@ if [[ "$MODE" == "install" ]]; then
 # Token-Jet configuration
 model_dir          = \"/home/${JETSON_USER}/models\"
 llama_cpp_bin      = \"/home/${JETSON_USER}/llama.cpp/build/bin\"
-server_host        = \"127.0.0.1\"
 server_port        = 1234
 ld_library_path    = \"/usr/local/cuda-13.2/targets/sbsa-linux/lib\"
 jetson_infer_bin   = \"/home/${JETSON_USER}/bin/jetson-infer\"
 hf_download_timeout = 300
 
-# Model to start when no --model flag is given. If unset, jetson-infer uses
-# the project-recommended model (currently Qwen3.5-4B-Coder) if downloaded,
-# then falls back to the first .gguf found in model_dir.
+# Model to load on startup. If unset, uses the project-recommended model
+# (Qwen3.5-4B-Coder) if downloaded, then the first .gguf found in model_dir.
 # startup_model = \"/home/${JETSON_USER}/models/qwen3.5-4B-super-coder.Q4_0.gguf\"
 
-# Cap thinking tokens to control verbosity on reasoning models (0 = no cap).
+# Cap thinking tokens on reasoning models (0 = no cap).
 # reasoning_budget = 1024
 TOML_EOF
             echo 'Config written to ${CONFIG_DIR}/config.toml'

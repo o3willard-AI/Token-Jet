@@ -351,6 +351,47 @@ jetson-infer stop && jetson-infer start
 
 ---
 
+## Air-Gapped USB Mode
+
+Token-Jet supports fully air-gapped operation over a single USB-C cable with no drivers to install on the client machine. This is enabled automatically by the NVIDIA L4T USB device mode service that ships with JetPack — no extra setup is needed after install.
+
+### How it works
+
+When a USB-C cable connects the Jetson to a Mac or Windows PC:
+
+1. The Jetson presents itself as a standard USB Ethernet adapter (CDC-NCM protocol)
+2. The client machine sees a new network interface and receives IP `192.168.55.100` via DHCP — automatically, with no prompts
+3. The Jetson's inference server and pi-web are immediately reachable at `192.168.55.1`
+
+**macOS** and **Windows 10/11 (build 18362+, released 2019)** support CDC-NCM natively — no drivers, no software install on the client side. Linux also works natively.
+
+### Endpoints over USB
+
+| Service | URL |
+|---------|-----|
+| pi-web browser UI | `http://192.168.55.1:30141` |
+| OpenAI-compatible inference API | `http://192.168.55.1:1234/v1` |
+
+### Client setup (one-time per cable plug-in)
+
+1. Plug a USB-C cable from the Jetson's USB-C port into your Mac or Windows PC
+2. Wait ~5 seconds for the USB Ethernet adapter to appear in your network list
+3. Open `http://192.168.55.1:30141` in your browser
+
+The client machine keeps its existing internet connection (WiFi or Ethernet) — the DHCP server on the Jetson deliberately does not advertise a default gateway, so only traffic destined for `192.168.55.x` routes through the USB link.
+
+> **Note:** The Jetson's WiFi and Ethernet can be left unplugged entirely for a fully air-gapped deployment. The USB link is self-contained.
+
+### Checking status
+
+```bash
+jetson-infer usb-status
+```
+
+Output shows whether a cable is detected, any active DHCP client, and whether the inference server and pi-web are reachable on the USB interface.
+
+---
+
 ## OpenAI-Compatible API
 
 Once a model is running, any OpenAI-compatible client can connect directly:

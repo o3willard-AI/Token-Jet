@@ -473,6 +473,73 @@ def show_status():
         show_models()
 
 
+def usb_status():
+    """Show USB gadget connectivity status and air-gapped endpoint URLs."""
+    import re
+    import urllib.request
+
+    # ── l4tbr0 state ──────────────────────────────────────────────────────────
+    try:
+        result = subprocess.run(
+            ["ip", "addr", "show", "l4tbr0"],
+            capture_output=True, text=True, timeout=3,
+        )
+        out = result.stdout
+        gadget_ready = "192.168.55.1" in out
+        cable_in = "state UP" in out and "NO-CARRIER" not in out
+    except Exception:
+        gadget_ready = False
+        cable_in = False
+
+    if not gadget_ready:
+        print("USB gadget: NOT CONFIGURED")
+        print("  Expected NVIDIA L4T USB device mode at 192.168.55.1")
+        print("  Check: systemctl status nv-l4t-usb-device-mode")
+        return
+
+    state = "CONNECTED  (cable detected)" if cable_in else "ready  (no cable plugged in)"
+    print(f"USB gadget: {state}")
+    print(f"  Jetson IP:        192.168.55.1")
+    print(f"  Client IP (DHCP): 192.168.55.100")
+
+    # ── Active DHCP lease ─────────────────────────────────────────────────────
+    try:
+        leases = open("/run/l4t-usb-devmode-dhcpd.leases").read()
+        active = re.findall(
+            r"lease\s+([\d.]+)\s*\{[^}]*binding\s+state\s+active", leases, re.DOTALL
+        )
+        print(f"  Active client:    {active[-1] if active else 'none'}")
+    except Exception:
+        pass
+
+    print()
+
+    # ── Inference server ──────────────────────────────────────────────────────
+    try:
+        resp = json.loads(urllib.request.urlopen(
+            f"http://192.168.55.1:{PORT}/v1/models", timeout=2).read())
+        model = (resp.get("data", [{}])[0].get("id", "?") or "?").split("/")[-1].replace(".gguf", "")
+        print(f"  Inference API:  http://192.168.55.1:{PORT}/v1  [OK]  ({model})")
+    except Exception:
+        print(f"  Inference API:  http://192.168.55.1:{PORT}/v1  [not running — jetson-infer start]")
+
+    # ── pi-web ────────────────────────────────────────────────────────────────
+    try:
+        urllib.request.urlopen("http://192.168.55.1:30141", timeout=2)
+        print(f"  pi-web UI:      http://192.168.55.1:30141      [OK]")
+    except Exception:
+        print(f"  pi-web UI:      http://192.168.55.1:30141      [not running]")
+
+    print()
+    print("Client setup — no drivers needed on macOS or Windows 10/11 (build 18362+):")
+    print("  1. Plug USB-C cable: Jetson  →  Mac or Windows PC")
+    print("  2. Wait ~5 sec for the USB Ethernet adapter to appear")
+    print("  3. Browser UI:        http://192.168.55.1:30141")
+    print("     OpenAI-compat API: http://192.168.55.1:1234/v1")
+    print()
+    print("No WiFi or Ethernet required. The Jetson is fully air-gapped.")
+
+
 def show_models():
     """List downloaded GGUF models and their estimated context window."""
     import glob
@@ -665,6 +732,7 @@ Examples:
 
     sub.add_parser("stop", help="Stop inference server")
     sub.add_parser("status", help="Show server status")
+    sub.add_parser("usb-status", help="Show USB gadget state and air-gapped endpoint URLs")
     sub.add_parser("models", help="List downloaded models with estimated context window")
     sub.add_parser("install", help="Install systemd service for auto-start on boot")
 
@@ -683,6 +751,8 @@ Examples:
         stop_server()
     elif args.command == "status":
         show_status()
+    elif args.command == "usb-status":
+        usb_status()
     elif args.command == "models":
         show_models()
     elif args.command == "install":
