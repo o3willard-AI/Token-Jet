@@ -489,8 +489,6 @@ def show_status():
     except Exception:
         pi_status = "not running"
     print(f"pi-web: http://{local_ip}:{PI_WEB_PORT}  [{pi_status}]")
-        print("Available models:")
-        show_models()
 
 
 def usb_status():
