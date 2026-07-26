@@ -95,7 +95,7 @@ curl -sL https://raw.githubusercontent.com/o3willard-AI/Token-Jet/main/scripts/i
 3. Installs Node.js 22 via NodeSource if not already present
 4. Detects your CUDA version and architecture automatically
 5. Clones and builds `llama.cpp` from source with CUDA support *(~15–25 min)*
-6. Clones and builds the PrismML fork for Bonsai GPU support *(~10–15 min)*
+6. Clones and builds the PrismML llama.cpp fork for Bonsai GPU support *(~10–15 min)* — skip with `--no-prism-build` if you don't use Bonsai models
 7. Installs the TUI into an isolated Python venv
 8. Deploys `jetson-infer` and creates the `token-jet` launcher
 9. Installs the pi coding agent and pi-web browser UI via npm

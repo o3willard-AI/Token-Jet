@@ -1,6 +1,8 @@
 # Install Script Backlog
 
-Issues found during pre-wipe audit (2026-07-25). None of these block `install-local.sh` (the recommended path). All three blockers and most warnings are specific to `install.sh` (workstation SSH path).
+Issues found during pre-wipe audit (2026-07-25). All three blockers and most warnings are specific to `install.sh` (workstation SSH path).
+
+**Fixed 2026-07-26:** `install-local.sh` now builds the PrismML fork by default (using the existing `_build_llama` helper with its `-j3` cap and CUDA auto-detection). Pass `--no-prism-build` to skip. This resolves the root cause of Bonsai falling back to CPU after a local install.
 
 ---
 

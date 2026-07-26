@@ -10,21 +10,24 @@
 #   ./scripts/install-local.sh --uninstall
 #
 # Options:
-#   --upgrade    Pull latest from GitHub, update TUI and jetson-infer; preserve config and models
-#   --uninstall  Remove TUI, launcher, and systemd service (models and config are kept)
-#   -h, --help   Show this help
+#   --upgrade         Pull latest from GitHub, update TUI and jetson-infer; preserve config and models
+#   --uninstall       Remove TUI, launcher, and systemd service (models and config are kept)
+#   --no-prism-build  Skip building the PrismML llama.cpp fork (Bonsai GPU support)
+#   -h, --help        Show this help
 
 set -euo pipefail
 
 REPO_URL="https://github.com/o3willard-AI/Token-Jet.git"
 CLONE_DIR="${HOME}/Token-Jet"
 MODE="install"
+BUILD_PRISM=true
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --upgrade)   MODE="upgrade";   shift ;;
-        --uninstall) MODE="uninstall"; shift ;;
-        -h|--help)   sed -n '2,16p' "$0" | sed 's/^# //'; exit 0 ;;
+        --upgrade)        MODE="upgrade";    shift ;;
+        --uninstall)      MODE="uninstall";  shift ;;
+        --no-prism-build) BUILD_PRISM=false; shift ;;
+        -h|--help)        sed -n '2,18p' "$0" | sed 's/^# //'; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -297,6 +300,24 @@ _build_llama \
     ""
 
 echo ""
+
+# ── Build PrismML llama.cpp fork (required for Bonsai GPU inference) ──────────
+# The PrismML fork adds CUDA kernels for TYPE_41/TYPE_42 ternary weights used
+# by Bonsai models. Without it, Bonsai falls back to CPU. Mainline llama.cpp
+# can load Bonsai files but has no GPU path for ternary quantization.
+if $BUILD_PRISM; then
+    _build_llama \
+        "llama.cpp-prism" \
+        "https://github.com/PrismML-Eng/llama.cpp" \
+        "${HOME}/llama.cpp-prism" \
+        "pr/q2_0-cuda"
+    echo ""
+else
+    echo "── PrismML fork ──────────────────────────────────────────────────────────────"
+    echo "  Skipped (--no-prism-build). Bonsai models will run on CPU until built."
+    echo "  To build later: ~/Token-Jet/scripts/install-local.sh --upgrade"
+    echo ""
+fi
 
 # ── Models directory ──────────────────────────────────────────────────────────
 mkdir -p "${HOME}/models"
