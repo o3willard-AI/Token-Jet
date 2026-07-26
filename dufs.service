@@ -1,0 +1,12 @@
+[Unit]
+Description=dufs — shared file server for Token-Jet (web + WebDAV)
+Documentation=https://github.com/sigoden/dufs
+After=network.target
+
+[Service]
+ExecStart=%h/bin/dufs %h/shared --port 30140 --bind 0.0.0.0 --allow-all
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

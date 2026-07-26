@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile);
 const SERVER_BASE = "http://127.0.0.1:1234";
 const DEFAULT_CTX = 16384;
 const SKILL_DIR = `${homedir()}/Token-Jet/pi/ddg-search`;
+const SHARED_DIR = `${homedir()}/shared`;
 
 // Returned when the server is unreachable or when pi requests a sync-only
 // refresh (allowNetwork: false). Must NOT be an empty array — pi evaluates
@@ -253,6 +254,59 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // ── list_shared_files tool ────────────────────────────────────────────────
+  // Surfaces the ~/shared/ interchange directory so the model knows where
+  // to read user-uploaded files and where to write work product for download.
+  pi.registerTool({
+    name: "list_shared_files",
+    label: "List Shared Files",
+    description:
+      `List files in the Token-Jet shared directory (${SHARED_DIR}). ` +
+      "uploads/ contains files the user has placed there from their Mac or Windows machine via the browser at http://<jetson-ip>:30140. " +
+      "exports/ is where you should write completed work product so the user can download it. " +
+      "Use this to discover what files are available to work on, or to confirm an export was written.",
+    promptSnippet:
+      "list_shared_files() — see what the user has uploaded (uploads/) and what exports exist (exports/)",
+    parameters: Type.Object({}),
+    async execute(_id, _params, _signal, _onUpdate, _ctx) {
+      function listDir(dir: string): string {
+        try {
+          const entries = readdirSync(dir);
+          if (!entries.length) return "  (empty)";
+          return entries
+            .map((f: string) => {
+              let size = "?";
+              try {
+                const bytes = statSync(`${dir}/${f}`).size;
+                size = bytes < 1024 * 1024
+                  ? `${(bytes / 1024).toFixed(1)} KB`
+                  : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+              } catch {}
+              return `  ${f}  (${size})`;
+            })
+            .join("\n");
+        } catch {
+          return "  (directory not found)";
+        }
+      }
+
+      const uploads = listDir(`${SHARED_DIR}/uploads`);
+      const exports = listDir(`${SHARED_DIR}/exports`);
+      const text = [
+        `Shared directory: ${SHARED_DIR}`,
+        `Browser access:   http://<jetson-ip>:30140`,
+        ``,
+        `uploads/   ← drop files here from Mac/Windows to give to pi`,
+        uploads,
+        ``,
+        `exports/   ← pi writes completed work here for Mac/Windows to download`,
+        exports,
+      ].join("\n");
+
+      return { content: [{ type: "text" as const, text }], details: {} };
+    },
+  });
+
   // ── Shared helper ──────────────────────────────────────────────────────────
   function listGgufs(): { name: string; sizeGb: string }[] {
     const modelDir = `${homedir()}/models`;
@@ -293,6 +347,42 @@ export default function (pi: ExtensionAPI) {
         const active = name === activeId;
         return `${active ? "▶ " : "  "}${name}  (${sizeGb} GB)`;
       });
+      ctx.ui.notify(lines.join("\n"), "info");
+    },
+  });
+
+  // ── /files slash command ──────────────────────────────────────────────────
+  pi.registerCommand("files", {
+    description: "Show files in ~/shared/uploads/ and ~/shared/exports/",
+    handler: async (_args, ctx) => {
+      function listDir(dir: string): string[] {
+        try {
+          const entries = readdirSync(dir);
+          if (!entries.length) return ["  (empty)"];
+          return entries.map((f: string) => {
+            let size = "?";
+            try {
+              const bytes = statSync(`${dir}/${f}`).size;
+              size = bytes < 1024 * 1024
+                ? `${(bytes / 1024).toFixed(1)} KB`
+                : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+            } catch {}
+            return `  ${f}  (${size})`;
+          });
+        } catch {
+          return ["  (not found)"];
+        }
+      }
+
+      const lines = [
+        `uploads/  (drop files here from Mac/Windows):`,
+        ...listDir(`${SHARED_DIR}/uploads`),
+        ``,
+        `exports/  (pi writes work product here for download):`,
+        ...listDir(`${SHARED_DIR}/exports`),
+        ``,
+        `Browser: http://<jetson-ip>:30140`,
+      ];
       ctx.ui.notify(lines.join("\n"), "info");
     },
   });

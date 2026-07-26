@@ -504,6 +504,41 @@ else
     echo "  pi-web service: enabled + started"
 fi
 
+# ── dufs file server ──────────────────────────────────────────────────────────
+# dufs serves ~/shared/ over HTTP (browser drag-and-drop) and WebDAV (native
+# OS drive mounting). No build required — pre-built aarch64 musl binary.
+# Mac:     Finder → Go → Connect to Server → http://<jetson-ip>:30140
+# Windows: Map Network Drive → \\<jetson-ip>@30140\DavWWWRoot
+echo "Installing dufs file server..."
+DUFS_VERSION="0.46.0"
+DUFS_BIN="${HOME}/bin/dufs"
+DUFS_URL="https://github.com/sigoden/dufs/releases/download/v${DUFS_VERSION}/dufs-v${DUFS_VERSION}-aarch64-unknown-linux-musl.tar.gz"
+_current_dufs_ver=$("$DUFS_BIN" --version 2>/dev/null | grep -oP '[\d.]+' | head -1 || echo "none")
+if [[ ! -x "$DUFS_BIN" ]] || [[ "$_current_dufs_ver" != "$DUFS_VERSION" ]]; then
+    echo "  Downloading dufs v${DUFS_VERSION} (aarch64-linux-musl)..."
+    curl -fsSL "$DUFS_URL" -o /tmp/dufs.tar.gz
+    tar -xzf /tmp/dufs.tar.gz -C /tmp/ dufs
+    mv /tmp/dufs "$DUFS_BIN"
+    chmod +x "$DUFS_BIN"
+    rm -f /tmp/dufs.tar.gz
+    echo "  dufs v${DUFS_VERSION}: installed at ~/bin/dufs"
+else
+    echo "  dufs v${DUFS_VERSION}: already current"
+fi
+mkdir -p "${HOME}/shared/uploads" "${HOME}/shared/exports"
+echo "  shared directory: ~/shared/ (uploads/ and exports/)"
+mkdir -p ~/.config/systemd/user/
+cp "${REPO_ROOT}/dufs.service" ~/.config/systemd/user/dufs.service
+systemctl --user daemon-reload 2>/dev/null || true
+if [[ "$MODE" == "upgrade" ]]; then
+    systemctl --user restart dufs 2>/dev/null || true
+    echo "  dufs service: restarted"
+else
+    systemctl --user enable dufs 2>/dev/null || true
+    systemctl --user start  dufs 2>/dev/null || true
+    echo "  dufs service: enabled + started at port 30140"
+fi
+
 # ── Default config (install only) ────────────────────────────────────────────
 if [[ "$MODE" == "install" ]]; then
     mkdir -p "$CONFIG_DIR"
@@ -595,8 +630,15 @@ echo "  source ~/.bashrc      (or open a new terminal)"
 echo "  token-jet             (launch the TUI dashboard)"
 echo "  pi-web                (start browser UI manually, if not using the service)"
 echo ""
-echo "Browser UI (pi-web) is running as a background service:"
-echo "  http://${JETSON_IP}:30141   ← open this on your workstation"
+echo "Services running as background systemd user services:"
+echo "  http://${JETSON_IP}:30141   ← pi-web  (browser UI for pi coding agent)"
+echo "  http://${JETSON_IP}:30140   ← dufs    (file share — upload/download + WebDAV)"
+echo ""
+echo "File sharing from Mac/Windows:"
+echo "  Browser:  http://${JETSON_IP}:30140"
+echo "  Mac mount: Finder → Go → Connect to Server → http://${JETSON_IP}:30140"
+echo "  Windows:   Map Network Drive → \\\\${JETSON_IP}@30140\\DavWWWRoot"
+echo "  Drop files into uploads/ for pi, pull pi's work from exports/"
 echo ""
 echo "First run — do these steps inside the TUI:"
 echo "  1. Ctrl+D  → open the model browser and download a model"

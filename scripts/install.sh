@@ -426,6 +426,42 @@ _ssh "
 "
 
 # ─────────────────────────────────────────────────────────────────────────────
+# dufs file server
+# ─────────────────────────────────────────────────────────────────────────────
+echo "Installing dufs file server..."
+DUFS_VERSION="0.46.0"
+DUFS_URL="https://github.com/sigoden/dufs/releases/download/v${DUFS_VERSION}/dufs-v${DUFS_VERSION}-aarch64-unknown-linux-musl.tar.gz"
+_ssh "
+    _current_dufs_ver=\$(~/bin/dufs --version 2>/dev/null | grep -oP '[\d.]+' | head -1 || echo 'none')
+    if [[ ! -x ~/bin/dufs ]] || [[ \"\$_current_dufs_ver\" != '${DUFS_VERSION}' ]]; then
+        echo '  Downloading dufs v${DUFS_VERSION}...'
+        curl -fsSL '${DUFS_URL}' -o /tmp/dufs.tar.gz
+        tar -xzf /tmp/dufs.tar.gz -C /tmp/ dufs
+        mv /tmp/dufs ~/bin/dufs
+        chmod +x ~/bin/dufs
+        rm -f /tmp/dufs.tar.gz
+        echo '  dufs v${DUFS_VERSION}: installed'
+    else
+        echo '  dufs v${DUFS_VERSION}: already current'
+    fi
+    mkdir -p ~/shared/uploads ~/shared/exports
+    echo '  shared directory: ~/shared/ (uploads/ and exports/)'
+"
+cat "${REPO_ROOT}/dufs.service" | _pipe_to "~/.config/systemd/user/dufs.service"
+_ssh "
+    mkdir -p ~/.config/systemd/user/
+    systemctl --user daemon-reload 2>/dev/null || true
+    if [[ '${MODE}' == 'upgrade' ]]; then
+        systemctl --user restart dufs 2>/dev/null || true
+        echo '  dufs service: restarted'
+    else
+        systemctl --user enable dufs 2>/dev/null || true
+        systemctl --user start  dufs 2>/dev/null || true
+        echo '  dufs service: enabled + started at port 30140'
+    fi
+"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # USB device mode (RNDIS-only)
 # NVIDIA's default enables ACM + UMS + ECM alongside RNDIS. On Windows, ACM
 # (USB serial) and UMS (16 MB FAT image) cause the host to loop-enumerate the
@@ -637,7 +673,13 @@ echo "  token-jet-tui              # Launch TUI"
 echo ""
 echo "From this workstation:"
 echo "  token-jet-tui              # SSH to Jetson and launch TUI"
-echo "  http://${JETSON_IP}:30141  # pi-web browser UI (running as a background service)"
+echo "  http://${JETSON_IP}:30141  # pi-web browser UI"
+echo "  http://${JETSON_IP}:30140  # dufs file share (browser + WebDAV)"
+echo ""
+echo "File sharing from Mac/Windows:"
+echo "  Browser:  http://${JETSON_IP}:30140"
+echo "  Mac:      Finder → Go → Connect to Server → http://${JETSON_IP}:30140"
+echo "  Windows:  Map Network Drive → \\\\${JETSON_IP}@30140\\DavWWWRoot"
 echo ""
 echo "To upgrade later:"
 echo "  ./scripts/install.sh ${JETSON_IP} --upgrade --user ${JETSON_USER}"

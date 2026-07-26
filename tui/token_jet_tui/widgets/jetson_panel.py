@@ -38,12 +38,13 @@ class JetsonPanel(Container):
         yield Static("JETSON STATUS", classes="panel-title")
         yield Static("Loading...", id="jetson-stats")
         yield Static("", id="pi-web-url")
+        yield Static("", id="dufs-url")
 
     def on_mount(self) -> None:
-        self._set_pi_web_url()
+        self._set_service_urls()
         self.set_interval(3, self._schedule_refresh)
 
-    def _set_pi_web_url(self) -> None:
+    def _set_service_urls(self) -> None:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
@@ -51,7 +52,8 @@ class JetsonPanel(Container):
             s.close()
         except Exception:
             ip = "localhost"
-        self.query_one("#pi-web-url").update(f"  Browser UI: http://{ip}:30141")
+        self.query_one("#pi-web-url").update(f"  Browser UI:  http://{ip}:30141")
+        self.query_one("#dufs-url").update(f"  File Share:  http://{ip}:30140")
 
     def _schedule_refresh(self) -> None:
         self._refresh_worker()

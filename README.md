@@ -446,6 +446,65 @@ Output shows whether a cable is detected, any active DHCP client, and whether th
 
 ---
 
+## File Sharing
+
+Token-Jet runs [dufs](https://github.com/sigoden/dufs) as a background service — a lightweight file server that gives any Mac or Windows machine on your network a shared workspace with the Jetson and its pi coding agent.
+
+### Shared directory layout
+
+```
+~/shared/
+├── uploads/    ← drop files here from Mac/Windows for pi to work on
+└── exports/    ← pi writes completed work here for you to download
+```
+
+### Accessing the file share
+
+**Browser (any platform):**
+```
+http://<jetson-ip>:30140
+```
+Full drag-and-drop upload, click-to-download, folder zip, and search — no software install required.
+
+**Mac — native drive mount (Finder):**
+1. Open Finder → **Go** → **Connect to Server** (`⌘K`)
+2. Enter: `http://<jetson-ip>:30140`
+3. Click **Connect** — the shared folder appears as a network volume
+
+**Windows — native drive mount:**
+1. Open **File Explorer** → **This PC** → **Map network drive**
+2. Enter: `\\<jetson-ip>@30140\DavWWWRoot`
+3. Click **Finish** — the shared folder appears as a mapped drive letter
+
+Once mounted, `~/shared/` on the Jetson behaves like a local folder on your Mac or Windows machine. Copy files in, copy files out, with no browser required.
+
+### Working with pi
+
+The pi coding agent knows about the shared directory. You can tell it to work on any file you've uploaded:
+
+```
+"Read the Python file I uploaded and fix the bug in the error handler"
+→ pi reads ~/shared/uploads/your_file.py
+→ pi writes the fixed version to ~/shared/exports/your_file_fixed.py
+→ you download it from http://<jetson-ip>:30140/exports/
+```
+
+Use `/files` in pi to see what's currently in uploads and exports, or use the `list_shared_files` tool to let the model discover your uploaded files automatically.
+
+### How it runs
+
+dufs starts automatically as a systemd user service on every boot:
+
+```bash
+systemctl --user status dufs       # check status
+systemctl --user restart dufs      # restart after config changes
+journalctl --user -u dufs -f       # stream logs
+```
+
+No authentication is required — same LAN-trust model as pi-web.
+
+---
+
 ## OpenAI-Compatible API
 
 Once a model is running, any OpenAI-compatible client can connect directly:

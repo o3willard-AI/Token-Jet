@@ -28,6 +28,7 @@ from pathlib import Path
 HOST = "0.0.0.0"
 PORT = 1234
 PI_WEB_PORT = 30141
+DUFS_PORT = 30140
 SAFETY_MARGIN_MB = 512  # Leave 512 MB for OS
 MIN_FREE_MB = 256       # Minimum free memory after loading
 HEALTH_CHECK_INTERVAL = 10  # Seconds between health checks
@@ -490,6 +491,13 @@ def show_status():
         pi_status = "not running"
     print(f"pi-web: http://{local_ip}:{PI_WEB_PORT}  [{pi_status}]")
 
+    try:
+        urllib.request.urlopen(f"http://127.0.0.1:{DUFS_PORT}", timeout=2)
+        dufs_status = "running"
+    except Exception:
+        dufs_status = "not running"
+    print(f"dufs:   http://{local_ip}:{DUFS_PORT}   [{dufs_status}]  (~/shared/)")
+
 
 def usb_status():
     """Show USB gadget connectivity status and air-gapped endpoint URLs."""
@@ -547,6 +555,13 @@ def usb_status():
         print(f"  pi-web UI:      http://192.168.55.1:30141      [OK]")
     except Exception:
         print(f"  pi-web UI:      http://192.168.55.1:30141      [not running]")
+
+    # ── dufs file share ───────────────────────────────────────────────────────
+    try:
+        urllib.request.urlopen(f"http://192.168.55.1:{DUFS_PORT}", timeout=2)
+        print(f"  File share:     http://192.168.55.1:{DUFS_PORT}      [OK]")
+    except Exception:
+        print(f"  File share:     http://192.168.55.1:{DUFS_PORT}      [not running]")
 
     print()
     print("Client setup — Windows 10/11 (build 18362+): no drivers needed.")
