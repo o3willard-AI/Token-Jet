@@ -110,12 +110,15 @@ export default function (pi: ExtensionAPI) {
   // ── web_search tool ────────────────────────────────────────────────────────
   // Registered as a native tool so small models call it directly instead of
   // needing to translate "run this bash command" into a bash tool invocation.
+  // Total output is capped at MAX_SEARCH_CHARS to prevent context overflow.
+  const MAX_SEARCH_CHARS = 6000;
   pi.registerTool({
     name: "web_search",
     label: "Web Search",
     description:
       "Search the web using DuckDuckGo. Returns titles, links, and snippets for each result. " +
-      "Use for any question requiring current information, facts, documentation, or news.",
+      "Use for any question requiring current information, facts, documentation, or news. " +
+      "Output is capped at 6000 chars; use fetch_url with page= to read full pages.",
     promptSnippet: 'web_search(query="...") — search the web with DuckDuckGo, no API key needed',
     parameters: Type.Object({
       query: Type.String({ description: "Search query" }),
@@ -123,7 +126,7 @@ export default function (pi: ExtensionAPI) {
         Type.Number({ description: "Number of results to return (default 5, max 25)", default: 5 })
       ),
       include_content: Type.Optional(
-        Type.Boolean({ description: "Fetch full readable page content for each result", default: false })
+        Type.Boolean({ description: "Fetch first 2000 chars of page content for each result (use fetch_url for full pages)", default: false })
       ),
       freshness: Type.Optional(
         Type.String({ description: "Time filter: pd=past day, pw=past week, pm=past month, py=past year" })
@@ -140,10 +143,15 @@ export default function (pi: ExtensionAPI) {
         encoding: "utf8",
       });
 
-      const text =
+      let text =
         result.stdout?.trim() ||
         result.stderr?.trim() ||
         "No results returned.";
+
+      if (text.length > MAX_SEARCH_CHARS) {
+        text = text.slice(0, MAX_SEARCH_CHARS) +
+          `\n\n[Truncated — ${text.length} chars total. Use fetch_url with page= to read specific results in full.]`;
+      }
 
       return {
         content: [{ type: "text" as const, text }],
@@ -241,13 +249,24 @@ export default function (pi: ExtensionAPI) {
     label: "Fetch URL",
     description:
       "Fetch the readable text content of any URL as markdown. " +
-      "Use when you have a specific URL and want to read its full content.",
-    promptSnippet: "fetch_url(url=\"https://...\") — read a webpage as markdown",
+      "Pages are split into 3000-char chunks. Call with page=1 first; " +
+      "if the response shows 'Page 1/N', call again with page=2, 3, etc. to read the rest.",
+    promptSnippet: "fetch_url(url=\"https://...\") — read a webpage as markdown; use page=2,3... for long pages",
     parameters: Type.Object({
       url: Type.String({ description: "The URL to fetch" }),
+      page: Type.Optional(
+        Type.Number({ description: "Which 3000-char page to return (default 1). Check Page N/M header for total.", default: 1 })
+      ),
+      page_size: Type.Optional(
+        Type.Number({ description: "Chars per page (default 3000, min 500). Reduce if responses are too large.", default: 3000 })
+      ),
     }),
     async execute(_id, params, _signal, _onUpdate, _ctx) {
-      const result = spawnSync("node", [`${SKILL_DIR}/content.js`, params.url], {
+      const args: string[] = [params.url];
+      if (params.page && params.page > 1) args.push("--page", String(Math.floor(params.page)));
+      if (params.page_size) args.push("--page-size", String(Math.floor(params.page_size)));
+
+      const result = spawnSync("node", [`${SKILL_DIR}/content.js`, ...args], {
         timeout: 30000,
         encoding: "utf8",
       });

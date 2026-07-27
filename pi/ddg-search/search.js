@@ -239,7 +239,7 @@ async function fetchPageContent(url) {
 		// Try Readability first (best quality)
 		const article = new Readability(dom.window.document).parse();
 		if (article?.content) {
-			return htmlToMarkdown(article.content).substring(0, 5000);
+			return htmlToMarkdown(article.content).substring(0, 2000);
 		}
 
 		// Fallback: strip chrome, extract main element
@@ -249,7 +249,7 @@ async function fetchPageContent(url) {
 		const main = doc2.querySelector("main, article, [role='main'], .content, #content")
 			?? doc2.body;
 		const text = main?.textContent ?? "";
-		if (text.trim().length > 100) return text.trim().substring(0, 5000);
+		if (text.trim().length > 100) return text.trim().substring(0, 2000);
 
 		return "(Could not extract readable content from this page)";
 	} catch (e) {
