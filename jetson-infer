@@ -384,6 +384,10 @@ def start_server(model_path: str, port=PORT):
         "--n-gpu-layers", "99",
         "--ctx-size", str(ctx_size),
         "--metrics",
+        # Return HTTP 400 instead of silently dropping oldest tokens when a
+        # request exceeds the context window. Silent truncation causes the model
+        # to answer based on an incomplete document with no warning to the user.
+        "--no-context-shift",
         # Always enabled: harmless no-op for non-thinking models; required for
         # any model that generates <think>...</think> blocks (Qwen3, MiniCPM,
         # DeepSeek-R1, Phi-4-reasoning, etc.) so llama-server routes thinking
