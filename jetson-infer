@@ -33,10 +33,9 @@ SAFETY_MARGIN_MB = 512   # Reserve for OS + services
 MIN_FREE_MB = 256        # Minimum free memory after loading
 # Context cap: CUDA runtime + scratch buffers consume ~2.8 GB that /proc/meminfo
 # can't see before the server starts. Empirically, ctx=12288 (688 MB KV) leaves only
-# ~1.3 GB headroom on Orin Nano 8 GB and crashes under load. ctx=8192 (448 MB KV)
-# leaves ~1.6 GB — safe for all models on this hardware. Raise only if a future model
-# profile is tested stable at a higher value.
-MAX_CTX_HARD_CAP = 8192
+# ~1.3 GB headroom on Orin Nano 8 GB and crashes under load. ctx=10240 (573 MB KV)
+# leaves ~1.5 GB — stable and gives pi ~2500 output tokens after its system context.
+MAX_CTX_HARD_CAP = 10240
 HEALTH_CHECK_INTERVAL = 10  # Seconds between health checks
 MEMORY_CHECK_INTERVAL = 30  # Seconds between memory checks
 MEMORY_RESTART_THRESHOLD_MB = 200  # Restart if free memory drops below this
@@ -359,16 +358,21 @@ def start_server(model_path: str, port=PORT):
         print("Run the Token-Jet installer to build llama.cpp.")
         sys.exit(1)
 
-    free_mb = get_free_memory_mb()
-    ctx_size = calculate_max_context(model, free_mb)
+    manual_ctx = _cfg("ctx_size", None)
+    if manual_ctx:
+        ctx_size = int(manual_ctx)
+    else:
+        free_mb = get_free_memory_mb()
+        ctx_size = calculate_max_context(model, free_mb)
 
     print(f"Model:    {model['name']}")
     print(f"File:     {model_path}")
     print(f"Size:     {model['size_gb']:.2f} GB")
     if model.get("speed_ts"):
         print(f"Speed:    {model['speed_ts']} t/s")
-    print(f"Free RAM: {free_mb} MB")
-    print(f"Context:  {ctx_size} tokens")
+    if not manual_ctx:
+        print(f"Free RAM: {free_mb} MB")
+    print(f"Context:  {ctx_size} tokens{' (manual override)' if manual_ctx else ''}")
     print(f"Endpoint: http://{HOST}:{port}")
     print(f"Chat API: http://{HOST}:{port}/v1/chat/completions")
     print()
@@ -395,11 +399,11 @@ def start_server(model_path: str, port=PORT):
         "--reasoning", "auto",
     ]
 
-    # Cap thinking tokens. 0 = no cap (model default). Tune in config.toml:
-    #   reasoning_budget = 1024
-    reasoning_budget = int(_cfg("reasoning_budget", 0))
-    if reasoning_budget > 0:
-        cmd += ["--reasoning-budget", str(reasoning_budget)]
+    # Cap thinking tokens. Default 512 prevents Qwen3 from burning the entire
+    # output budget on <think> blocks when the system context is large.
+    # Override in config.toml: reasoning_budget = -1  (unlimited), 0 (disable)
+    reasoning_budget = int(_cfg("reasoning_budget", 512))
+    cmd += ["--reasoning-budget", str(reasoning_budget)]
 
     print(f"Starting: {' '.join(cmd)}")
     print(f"Logs: {LOG_FILE}")
