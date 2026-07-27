@@ -87,7 +87,11 @@ export default function (pi: ExtensionAPI) {
 
       return ggufFiles.map((f: string) => {
         const isActive = f === activeFile;
-        const name = f.replace(/\.gguf$/i, "");
+        const baseName = f.replace(/\.gguf$/i, "");
+        // Mark the active model so it's identifiable in the pi-web dropdown.
+        // Non-active models can be selected but require running switch_model in
+        // the chat and then starting a new session to take effect.
+        const name = isActive ? `▶ ${baseName}` : baseName;
         const ctx = isActive ? activeCtx : DEFAULT_CTX;
         return {
           id: `${modelDir}/${f}`,
