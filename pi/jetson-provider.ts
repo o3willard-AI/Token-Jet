@@ -43,57 +43,63 @@ export default function (pi: ExtensionAPI) {
     // returning [] (truthy) overwrites the static models list above.
     refreshModels: async (context) => {
       if (!context.allowNetwork) {
-        // Sync-only pass — no network calls allowed. Return the fallback so
-        // the static list is not wiped before the real refresh runs.
         return [FALLBACK_MODEL];
       }
+
+      // Enumerate all downloaded .gguf files so pi-web shows every model,
+      // not just the one currently loaded in the server.
+      const modelDir = `${homedir()}/models`;
+      let ggufFiles: string[] = [];
       try {
-        // /v1/models: primary source for model ID and context window.
-        // Newer llama-server versions expose meta.n_ctx here directly.
+        ggufFiles = readdirSync(modelDir)
+          .filter((f: string) => f.endsWith(".gguf"))
+          .sort();
+      } catch {}
+
+      if (!ggufFiles.length) return [FALLBACK_MODEL];
+
+      // Get the active model filename and its real context window from the server.
+      let activeFile = "";
+      let activeCtx = DEFAULT_CTX;
+      try {
         const modelsResp = await fetch(`${SERVER_BASE}/v1/models`, {
           signal: context.signal,
         });
-        if (!modelsResp.ok) return [FALLBACK_MODEL];
-        const modelsData = await modelsResp.json();
-        const first = (modelsData.data ?? [])[0];
-        if (!first) return [FALLBACK_MODEL];
-
-        const modelId: string = first.id ?? "local";
-        const modelName: string =
-          modelId.split("/").pop()?.replace(/\.gguf$/i, "") ?? modelId;
-
-        // Prefer meta.n_ctx from /v1/models (official pi-llama-cpp approach).
-        // Fall back to /props for older llama-server builds.
-        let n_ctx: number = first?.meta?.n_ctx ?? 0;
-        if (!n_ctx) {
-          const propsResp = await fetch(`${SERVER_BASE}/props`, {
-            signal: context.signal,
-          });
-          if (propsResp.ok) {
-            const props = await propsResp.json();
-            n_ctx = props?.default_generation_settings?.n_ctx ?? DEFAULT_CTX;
-          } else {
-            n_ctx = DEFAULT_CTX;
+        if (modelsResp.ok) {
+          const data = await modelsResp.json();
+          const first = (data.data ?? [])[0];
+          if (first) {
+            activeFile = (first.id ?? "").split("/").pop() ?? "";
+            activeCtx = first?.meta?.n_ctx ?? DEFAULT_CTX;
+            if (!activeCtx) {
+              const propsResp = await fetch(`${SERVER_BASE}/props`, {
+                signal: context.signal,
+              });
+              if (propsResp.ok) {
+                const props = await propsResp.json();
+                activeCtx =
+                  props?.default_generation_settings?.n_ctx ?? DEFAULT_CTX;
+              }
+            }
           }
         }
+      } catch {}
 
-        return [
-          {
-            id: modelId,
-            name: modelName,
-            api: "openai-completions",
-            input: ["text"],
-            reasoning: false,
-            contextWindow: n_ctx,
-            maxTokens: n_ctx,
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          },
-        ];
-      } catch {
-        // Server not running — keep a usable model entry so pi doesn't
-        // show "No models available". Requests will fail at send time.
-        return [FALLBACK_MODEL];
-      }
+      return ggufFiles.map((f: string) => {
+        const isActive = f === activeFile;
+        const name = f.replace(/\.gguf$/i, "");
+        const ctx = isActive ? activeCtx : DEFAULT_CTX;
+        return {
+          id: `${modelDir}/${f}`,
+          name,
+          api: "openai-completions" as const,
+          input: ["text"] as string[],
+          reasoning: false,
+          contextWindow: ctx,
+          maxTokens: ctx,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        };
+      });
     },
   });
 
