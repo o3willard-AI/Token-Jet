@@ -16,6 +16,6 @@
   },
   "compaction": {
     "reserveTokens": 4096,
-    "keepRecentTokens": 8192
+    "keepRecentTokens": 2048
   }
 }
