@@ -258,6 +258,9 @@ async function fetchPageContent(url) {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
+// Hard cap on total stdout to prevent context window overflow regardless of
+// how this script is invoked (bash tool or web_search tool wrapper).
+const MAX_TOTAL_CHARS = 5000;
 
 try {
 	const results = await searchDDG(query, numResults, freshness);
@@ -273,17 +276,25 @@ try {
 		}
 	}
 
+	const lines = [];
 	for (let i = 0; i < results.length; i++) {
 		const r = results[i];
-		console.log(`--- Result ${i + 1} ---`);
-		console.log(`Title: ${r.title}`);
-		console.log(`Link: ${r.link}`);
-		console.log(`Snippet: ${r.snippet}`);
+		lines.push(`--- Result ${i + 1} ---`);
+		lines.push(`Title: ${r.title}`);
+		lines.push(`Link: ${r.link}`);
+		lines.push(`Snippet: ${r.snippet}`);
 		if (r.content) {
-			console.log(`Content:\n${r.content}`);
+			lines.push(`Content:\n${r.content}`);
 		}
-		console.log("");
+		lines.push("");
 	}
+
+	let output = lines.join("\n");
+	if (output.length > MAX_TOTAL_CHARS) {
+		output = output.slice(0, MAX_TOTAL_CHARS) +
+			`\n\n[Output truncated at ${MAX_TOTAL_CHARS} chars. Use fetch_url for full page content.]`;
+	}
+	console.log(output);
 } catch (e) {
 	console.error(`Error: ${e.message}`);
 	process.exit(1);
