@@ -43,6 +43,9 @@ MAX_RESTARTS = 10         # Max consecutive restarts before giving up
 LOG_FILE = "/tmp/jetson-infer.log"
 PID_FILE = "/tmp/jetson-infer.pid"
 WATCHDOG_LOG = "/tmp/jetson-watchdog.log"
+# Written by switch_model, cleared on completion. Tells the watchdog not to
+# restart the old model while a manual switch is in progress.
+SWITCH_LOCK = "/tmp/jetson-infer-switching.lock"
 
 _HOME = Path.home()
 
@@ -638,10 +641,32 @@ def show_models():
 def switch_model(model_arg: str, port=PORT):
     """Stop the running server and restart with a different model."""
     model_path = _resolve_model_path(model_arg)
+    model_info = _infer_model_info(model_path)
     print(f"Switching to: {os.path.basename(model_path)}")
-    stop_server()
-    time.sleep(2)
-    start_server(model_path, port)
+
+    # Signal the watchdog not to restart the old model during the transition.
+    Path(SWITCH_LOCK).touch()
+    try:
+        stop_server()
+
+        # Wait for CUDA/unified memory to be fully reclaimed before loading the
+        # new model. The 2-second fixed sleep is not enough for a 5 GB model on
+        # Jetson — the driver takes several seconds to return pages to the pool.
+        mem_needed_mb = int(model_info["size_gb"] * 1024) + 1024
+        print(f"Waiting for memory ({mem_needed_mb} MB needed)...", end="", flush=True)
+        for _ in range(30):  # up to 60 seconds
+            if get_free_memory_mb() >= mem_needed_mb:
+                break
+            print(".", end="", flush=True)
+            time.sleep(2)
+        free_now = get_free_memory_mb()
+        print(f" {free_now} MB free")
+        if free_now < mem_needed_mb:
+            print(f"WARNING: only {free_now} MB free, need {mem_needed_mb} MB — proceeding anyway")
+
+        start_server(model_path, port)
+    finally:
+        Path(SWITCH_LOCK).unlink(missing_ok=True)
 
 
 def install_service():
@@ -715,6 +740,10 @@ def watchdog_loop(model_path: str, port, max_restarts=MAX_RESTARTS):
                 wprint(f"MEMORY LOW: {free_mb} MB free (threshold: {MEMORY_RESTART_THRESHOLD_MB} MB). Restarting...")
                 healthy = False
         
+        if not healthy and Path(SWITCH_LOCK).exists():
+            wprint("Server down but switch in progress — standing by")
+            continue
+
         if not healthy:
             restart_count += 1
             wprint(f"SERVER UNHEALTHY (restart {restart_count}/{max_restarts})")
