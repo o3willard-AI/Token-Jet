@@ -13,5 +13,9 @@
     "medium": 1024,
     "high": 2048,
     "xhigh": 4096
+  },
+  "compaction": {
+    "reserveTokens": 4096,
+    "keepRecentTokens": 8192
   }
 }
