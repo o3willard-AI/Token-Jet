@@ -5,9 +5,7 @@
   "extensions": ["~/.pi/agent/extensions/jetson-provider.ts", "~/.pi/agent/extensions/wifi-manager.ts"],
   "skills": ["~/Token-Jet/pi/ddg-search"],
   "packages": [
-    "npm:pi-mcp-adapter",
-    "npm:@plannotator/pi-extension",
-    "npm:@juicesharp/rpiv-ask-user-question"
+    "npm:pi-mcp-adapter"
   ],
   "thinkingBudgets": {
     "minimal": 256,
