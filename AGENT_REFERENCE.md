@@ -206,16 +206,11 @@ A pre-built Rust binary (`~/bin/dufs`) serving `~/shared/` over HTTP and WebDAV.
 
 **Port:** `30140`  
 **Service:** `dufs.service` (systemd user unit)  
-**Shared directory layout:**
-```
-~/shared/
-├── uploads/    ← files dropped here by Mac/Windows users for pi to consume
-└── exports/    ← pi writes completed work here for Mac/Windows to download
-```
+**Shared directory:** `~/shared/` — flat; users drop files here directly and create their own subdirectories as needed.
 
 **pi integration:**
-- `list_shared_files` tool: lists uploads/ and exports/ with file sizes; tells the model where to read user files and write work product
-- `/files` command: interactive view of both directories
+- `list_shared_files` tool: lists `~/shared/` with file sizes and directory markers
+- `/files` command: shows `~/shared/` contents
 
 **Access:**
 - Browser (any platform): `http://<jetson-ip>:30140`
@@ -310,8 +305,7 @@ rm -f "$TMPF"
 | `~/.config/systemd/user/pi-web.service` | pi-web auto-start |
 | `~/.config/systemd/user/dufs.service` | dufs file server auto-start |
 | `~/bin/dufs` | dufs binary (aarch64 musl static) |
-| `~/shared/uploads/` | files from Mac/Windows for pi to consume |
-| `~/shared/exports/` | pi work product for Mac/Windows to download |
+| `~/shared/` | file drop zone — users place files here for pi; create subdirs as needed |
 | `/etc/systemd/system/jetson-clocks-boot.service` | Clock lock at boot |
 | `/etc/sudoers.d/token-jet-wifi` | nmcli NOPASSWD rule |
 | `/opt/nvidia/l4t-usb-device-mode/nv-l4t-usb-device-mode-config.sh` | USB gadget config |

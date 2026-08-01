@@ -518,8 +518,8 @@ if [[ ! -x "$DUFS_BIN" ]] || [[ "$_current_dufs_ver" != "$DUFS_VERSION" ]]; then
 else
     echo "  dufs v${DUFS_VERSION}: already current"
 fi
-mkdir -p "${HOME}/shared/uploads" "${HOME}/shared/exports"
-echo "  shared directory: ~/shared/ (uploads/ and exports/)"
+mkdir -p "${HOME}/shared"
+echo "  shared directory: ~/shared/"
 mkdir -p ~/.config/systemd/user/
 cp "${REPO_ROOT}/dufs.service" ~/.config/systemd/user/dufs.service
 systemctl --user daemon-reload 2>/dev/null || true
@@ -631,7 +631,7 @@ echo "File sharing from Mac/Windows:"
 echo "  Browser:  http://${JETSON_IP}:30140"
 echo "  Mac mount: Finder → Go → Connect to Server → http://${JETSON_IP}:30140"
 echo "  Windows:   Map Network Drive → \\\\${JETSON_IP}@30140\\DavWWWRoot"
-echo "  Drop files into uploads/ for pi, pull pi's work from exports/"
+echo "  Drop files into ~/shared/ for pi to work on"
 echo ""
 echo "First run — do these steps inside the TUI:"
 echo "  1. Ctrl+D  → open the model browser and download a model"

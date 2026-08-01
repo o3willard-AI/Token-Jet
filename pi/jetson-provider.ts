@@ -284,52 +284,39 @@ export default function (pi: ExtensionAPI) {
   });
 
   // ── list_shared_files tool ────────────────────────────────────────────────
-  // Surfaces the ~/shared/ interchange directory so the model knows where
-  // to read user-uploaded files and where to write work product for download.
+  // Surfaces the ~/shared/ directory so the model can see what files are
+  // available to work on. Users drop files directly into ~/shared/ (no
+  // uploads/ or exports/ subdirectories — they can create their own if needed).
   pi.registerTool({
     name: "list_shared_files",
     label: "List Shared Files",
     description:
       `List files in the Token-Jet shared directory (${SHARED_DIR}). ` +
-      "uploads/ contains files the user has placed there from their Mac or Windows machine via the browser at http://<jetson-ip>:30140. " +
-      "exports/ is where you should write completed work product so the user can download it. " +
-      "Use this to discover what files are available to work on, or to confirm an export was written.",
+      "Users place files here from their Mac or Windows machine via the browser at http://<jetson-ip>:30140 or a native WebDAV mount. " +
+      "Use this to discover what files are available to work on.",
     promptSnippet:
-      "list_shared_files() — see what the user has uploaded (uploads/) and what exports exist (exports/)",
+      "list_shared_files() — see what files are in ~/shared/",
     parameters: Type.Object({}),
     async execute(_id, _params, _signal, _onUpdate, _ctx) {
-      function listDir(dir: string): string {
-        try {
-          const entries = readdirSync(dir);
-          if (!entries.length) return "  (empty)";
-          return entries
-            .map((f: string) => {
-              let size = "?";
-              try {
-                const bytes = statSync(`${dir}/${f}`).size;
-                size = bytes < 1024 * 1024
-                  ? `${(bytes / 1024).toFixed(1)} KB`
-                  : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-              } catch {}
+      let entries: string[] = [];
+      try { entries = readdirSync(SHARED_DIR); } catch {}
+      const lines = entries.length
+        ? entries.map((f: string) => {
+            try {
+              const st = statSync(`${SHARED_DIR}/${f}`);
+              if (st.isDirectory()) return `  ${f}/`;
+              const size = st.size < 1024 * 1024
+                ? `${(st.size / 1024).toFixed(1)} KB`
+                : `${(st.size / 1024 / 1024).toFixed(1)} MB`;
               return `  ${f}  (${size})`;
-            })
-            .join("\n");
-        } catch {
-          return "  (directory not found)";
-        }
-      }
-
-      const uploads = listDir(`${SHARED_DIR}/uploads`);
-      const exports = listDir(`${SHARED_DIR}/exports`);
+            } catch { return `  ${f}`; }
+          })
+        : ["  (empty)"];
       const text = [
         `Shared directory: ${SHARED_DIR}`,
         `Browser access:   http://<jetson-ip>:30140`,
         ``,
-        `uploads/   ← drop files here from Mac/Windows to give to pi`,
-        uploads,
-        ``,
-        `exports/   ← pi writes completed work here for Mac/Windows to download`,
-        exports,
+        ...lines,
       ].join("\n");
 
       return { content: [{ type: "text" as const, text }], details: {} };
@@ -382,35 +369,25 @@ export default function (pi: ExtensionAPI) {
 
   // ── /files slash command ──────────────────────────────────────────────────
   pi.registerCommand("files", {
-    description: "Show files in ~/shared/uploads/ and ~/shared/exports/",
+    description: "Show files in ~/shared/",
     handler: async (_args, ctx) => {
-      function listDir(dir: string): string[] {
-        try {
-          const entries = readdirSync(dir);
-          if (!entries.length) return ["  (empty)"];
-          return entries.map((f: string) => {
-            let size = "?";
+      let entries: string[] = [];
+      try { entries = readdirSync(SHARED_DIR); } catch {}
+      const fileLines = entries.length
+        ? entries.map((f: string) => {
             try {
-              const bytes = statSync(`${dir}/${f}`).size;
-              size = bytes < 1024 * 1024
-                ? `${(bytes / 1024).toFixed(1)} KB`
-                : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-            } catch {}
-            return `  ${f}  (${size})`;
-          });
-        } catch {
-          return ["  (not found)"];
-        }
-      }
-
+              const st = statSync(`${SHARED_DIR}/${f}`);
+              if (st.isDirectory()) return `  ${f}/`;
+              const size = st.size < 1024 * 1024
+                ? `${(st.size / 1024).toFixed(1)} KB`
+                : `${(st.size / 1024 / 1024).toFixed(1)} MB`;
+              return `  ${f}  (${size})`;
+            } catch { return `  ${f}`; }
+          })
+        : ["  (empty)"];
       const lines = [
-        `uploads/  (drop files here from Mac/Windows):`,
-        ...listDir(`${SHARED_DIR}/uploads`),
-        ``,
-        `exports/  (pi writes work product here for download):`,
-        ...listDir(`${SHARED_DIR}/exports`),
-        ``,
-        `Browser: http://<jetson-ip>:30140`,
+        `~/shared/  —  Browser: http://<jetson-ip>:30140`,
+        ...fileLines,
       ];
       ctx.ui.notify(lines.join("\n"), "info");
     },

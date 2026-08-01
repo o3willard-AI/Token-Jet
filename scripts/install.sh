@@ -440,8 +440,8 @@ _ssh "
     else
         echo '  dufs v${DUFS_VERSION}: already current'
     fi
-    mkdir -p ~/shared/uploads ~/shared/exports
-    echo '  shared directory: ~/shared/ (uploads/ and exports/)'
+    mkdir -p ~/shared
+    echo '  shared directory: ~/shared/'
 "
 cat "${REPO_ROOT}/dufs.service" | _pipe_to "~/.config/systemd/user/dufs.service"
 _ssh "

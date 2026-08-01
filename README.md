@@ -450,14 +450,6 @@ Output shows whether a cable is detected, any active DHCP client, and whether th
 
 Token-Jet runs [dufs](https://github.com/sigoden/dufs) as a background service — a lightweight file server that gives any Mac or Windows machine on your network a shared workspace with the Jetson and its pi coding agent.
 
-### Shared directory layout
-
-```
-~/shared/
-├── uploads/    ← drop files here from Mac/Windows for pi to work on
-└── exports/    ← pi writes completed work here for you to download
-```
-
 ### Accessing the file share
 
 **Browser (any platform):**
@@ -480,16 +472,14 @@ Once mounted, `~/shared/` on the Jetson behaves like a local folder on your Mac 
 
 ### Working with pi
 
-The pi coding agent knows about the shared directory. You can tell it to work on any file you've uploaded:
+The pi coding agent knows about the shared directory. Drop any file into `~/shared/` and ask pi to work on it:
 
 ```
 "Read the Python file I uploaded and fix the bug in the error handler"
-→ pi reads ~/shared/uploads/your_file.py
-→ pi writes the fixed version to ~/shared/exports/your_file_fixed.py
-→ you download it from http://<jetson-ip>:30140/exports/
+→ pi reads ~/shared/your_file.py and writes the fixed version back
 ```
 
-Use `/files` in pi to see what's currently in uploads and exports, or use the `list_shared_files` tool to let the model discover your uploaded files automatically.
+Use `/files` in pi to see what's in the shared directory, or use the `list_shared_files` tool to let the model discover your files automatically. Create subdirectories in `~/shared/` if you want to organise work — pi and the file browser both see them.
 
 ### How it runs
 
