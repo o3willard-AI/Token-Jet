@@ -8,7 +8,7 @@ import { promisify } from "util";
 const execFileAsync = promisify(execFile);
 
 const SERVER_BASE = "http://127.0.0.1:1234";
-const DEFAULT_CTX = 20480; // Must match MAX_CTX_HARD_CAP in jetson-infer
+const DEFAULT_CTX = 20480; // Conservative fallback; active model's n_ctx is queried from the server
 const SKILL_DIR = `${homedir()}/Token-Jet/pi/ddg-search`;
 const SHARED_DIR = `${homedir()}/shared`;
 

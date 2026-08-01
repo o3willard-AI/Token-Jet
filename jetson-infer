@@ -31,11 +31,15 @@ PI_WEB_PORT = 30141
 DUFS_PORT = 30140
 SAFETY_MARGIN_MB = 512   # Reserve for OS + services
 MIN_FREE_MB = 256        # Minimum free memory after loading
-# Context cap: raised to 20480 after empirical memory analysis (2026-07-28).
-# With Q8_0 KV quantization the KV cache cost at 20480 matches F16 at 10240
-# (~560 MB), leaving ~1.5 GB headroom after model weights + CUDA runtime + OS.
-# --cache-type-k/v q8_0 flags are set in start_server() below.
-MAX_CTX_HARD_CAP = 20480
+# Context cap scales with model size.  At the reference model size (2.5 GB,
+# validated 2026-07-28 with Q8_0 KV quant) the cap is 20480.  For every 200 MB
+# the model weighs less, the cap rises by 4096 tokens — the freed RAM goes to
+# KV cache.  The physics-based calculate_max_context() still applies on top, so
+# the cap is an upper bound, not a guarantee.
+CTX_SCALE_REF_MB   = 2500   # Reference model size (MB)
+CTX_SCALE_BASE     = 20480  # Cap at the reference size (empirically validated)
+CTX_SCALE_STEP_MB  = 200    # MB below reference per step
+CTX_SCALE_STEP     = 4096   # Extra tokens per step
 HEALTH_CHECK_INTERVAL = 10  # Seconds between health checks
 MEMORY_CHECK_INTERVAL = 30  # Seconds between memory checks
 MEMORY_RESTART_THRESHOLD_MB = 200  # Restart if free memory drops below this
@@ -280,6 +284,16 @@ def get_free_memory_mb():
     return 1024  # Conservative default
 
 
+def _ctx_cap_for_model(model_size_mb: float) -> int:
+    """Return the context cap for a model of the given size.
+
+    Scales up from CTX_SCALE_BASE as models get lighter than CTX_SCALE_REF_MB.
+    Models at or above the reference size get the base cap unchanged.
+    """
+    steps = int(max(0.0, CTX_SCALE_REF_MB - model_size_mb) / CTX_SCALE_STEP_MB)
+    return CTX_SCALE_BASE + steps * CTX_SCALE_STEP
+
+
 def calculate_max_context(model_info, free_memory_mb):
     """Calculate the largest context window that fits in available memory.
 
@@ -304,8 +318,9 @@ def calculate_max_context(model_info, free_memory_mb):
 
     kv_budget_mb = available_mb * 0.85  # 15% headroom for CUDA overhead
 
+    size_cap = _ctx_cap_for_model(model_info["size_gb"] * 1024)
     max_ctx = int(kv_budget_mb / (kb_per_token / 1024))
-    max_ctx = min(max_ctx, model_info["max_ctx"], MAX_CTX_HARD_CAP)
+    max_ctx = min(max_ctx, model_info["max_ctx"], size_cap)
     max_ctx = max(max_ctx, 2048)
 
     # Round down to nearest power-of-2-ish step so llama.cpp gets a clean value.
