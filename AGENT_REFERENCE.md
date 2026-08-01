@@ -11,7 +11,7 @@ Token-Jet deploys a self-contained local AI server on a **Jetson Orin Nano 8 GB*
 
 **Live deployment target:**
 - Jetson IP: `192.168.101.91` (Wi-Fi/Ethernet) or `192.168.55.1` (USB)
-- SSH user: `sblanken` / password: `101abn`
+- SSH user: `jetuser` / password: `101abn`
 - Repo clone on Jetson: `~/Token-Jet`
 
 ---

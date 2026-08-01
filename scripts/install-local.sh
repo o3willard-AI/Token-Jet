@@ -410,6 +410,17 @@ npm install -g --ignore-scripts @earendil-works/pi-coding-agent 2>/dev/null \
     && echo "  pi $(pi --version 2>/dev/null || echo installed): OK" \
     || echo "  WARNING: pi install failed — check npm output above"
 
+# Deploy default settings before 'pi install' so the repo version lands on fresh
+# installs. pi install creates settings.json as a side effect, so this must run
+# first; otherwise the conditional below always finds the file already present.
+if [[ ! -f ~/.pi/agent/settings.json ]]; then
+    mkdir -p ~/.pi/agent/
+    cp "${REPO_ROOT}/pi/settings.json" ~/.pi/agent/settings.json
+    echo "  pi settings: ~/.pi/agent/settings.json"
+else
+    echo "  pi settings: preserved (already exists)"
+fi
+
 # Install pi extensions — pre-configured and available immediately after install.
 # Each uses pi's own package manager (pi install npm:...) which handles placement
 # into ~/.pi/agent/ automatically.
@@ -417,15 +428,6 @@ echo "  Installing pi extensions..."
 yes | pi install npm:pi-mcp-adapter 2>/dev/null \
     && echo "    pi-mcp-adapter: OK" \
     || echo "    WARNING: pi-mcp-adapter install failed"
-yes | pi install 'npm:@plannotator/pi-extension' 2>/dev/null \
-    && echo "    @plannotator/pi-extension: OK" \
-    || echo "    WARNING: @plannotator/pi-extension install failed"
-yes | pi install 'npm:@juicesharp/rpiv-ask-user-question' 2>/dev/null \
-    && echo "    @juicesharp/rpiv-ask-user-question: OK" \
-    || echo "    WARNING: @juicesharp/rpiv-ask-user-question install failed"
-yes | pi install npm:pi-knowledge 2>/dev/null \
-    && echo "    pi-knowledge: OK" \
-    || echo "    WARNING: pi-knowledge install failed"
 
 # Install pi-web (browser UI for pi sessions — accessible at http://<jetson-ip>:30141).
 npm install -g @agegr/pi-web 2>/dev/null \
@@ -445,15 +447,6 @@ echo "  jetson-provider: ~/.pi/agent/extensions/jetson-provider.ts"
 cp "${REPO_ROOT}/pi/wifi-manager.ts" ~/.pi/agent/extensions/wifi-manager.ts
 echo "  wifi-manager: ~/.pi/agent/extensions/wifi-manager.ts"
 chmod +x "${REPO_ROOT}/pi/wifi-manager/wifi.py"
-
-# Deploy default settings only on first install; preserve user customisations on upgrade.
-if [[ ! -f ~/.pi/agent/settings.json ]]; then
-    mkdir -p ~/.pi/agent/
-    cp "${REPO_ROOT}/pi/settings.json" ~/.pi/agent/settings.json
-    echo "  pi settings: ~/.pi/agent/settings.json"
-else
-    echo "  pi settings: preserved (already exists)"
-fi
 
 # Write the jetson-local API key into auth.json so pi's auth check always
 # passes for the local provider. pi requires every provider to have auth

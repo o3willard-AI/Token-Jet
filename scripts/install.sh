@@ -311,6 +311,17 @@ echo "  /usr/local/bin/fetch-url:  OK"
 # pi-web is exposed on all interfaces so it's reachable from this workstation.
 # ─────────────────────────────────────────────────────────────────────────────
 echo "Installing Node.js 22, pi coding agent, extensions, and pi-web..."
+
+# Deploy pi settings before 'pi install' runs — pi install creates settings.json
+# as a side effect, so this must arrive first or the repo version is never used.
+_ssh "mkdir -p ~/.pi/agent/"
+if ! _ssh "[[ -f ~/.pi/agent/settings.json ]]"; then
+    cat "${REPO_ROOT}/pi/settings.json" | _pipe_to "~/.pi/agent/settings.json"
+    echo "  pi settings: ~/.pi/agent/settings.json"
+else
+    echo "  pi settings: preserved (already exists)"
+fi
+
 _ssh "
     NODE_OK=false
     if command -v node &>/dev/null; then
@@ -341,15 +352,6 @@ _ssh "
     yes | pi install npm:pi-mcp-adapter 2>/dev/null \
         && echo '  pi-mcp-adapter: OK' \
         || echo '  WARNING: pi-mcp-adapter install failed'
-    yes | pi install 'npm:@plannotator/pi-extension' 2>/dev/null \
-        && echo '  @plannotator/pi-extension: OK' \
-        || echo '  WARNING: @plannotator/pi-extension install failed'
-    yes | pi install 'npm:@juicesharp/rpiv-ask-user-question' 2>/dev/null \
-        && echo '  @juicesharp/rpiv-ask-user-question: OK' \
-        || echo '  WARNING: @juicesharp/rpiv-ask-user-question install failed'
-    yes | pi install npm:pi-knowledge 2>/dev/null \
-        && echo '  pi-knowledge: OK' \
-        || echo '  WARNING: pi-knowledge install failed'
 
     npm install -g @agegr/pi-web 2>/dev/null \
         && echo '  pi-web: OK' \
@@ -384,12 +386,6 @@ _ssh "
     fi
 "
 
-if [[ ! -f "${REPO_ROOT}/pi/settings.json" ]] || _ssh "[[ -f ~/.pi/agent/settings.json ]]"; then
-    echo "  pi settings: preserved (already exists)"
-else
-    cat "${REPO_ROOT}/pi/settings.json" | _pipe_to "~/.pi/agent/settings.json"
-    echo "  pi settings: OK"
-fi
 
 _ssh "
     python3 - <<'PYEOF'
