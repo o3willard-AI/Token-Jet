@@ -297,9 +297,9 @@ def _ctx_cap_for_model(model_size_mb: float) -> int:
 def calculate_max_context(model_info, free_memory_mb):
     """Calculate the largest context window that fits in available memory.
 
-    KV cache cost per token = 2 * n_kv_heads * head_dim * n_layers * 2 bytes (fp16).
-    Validated empirically on Bonsai-8B: theoretical matches observed consumption
-    on Jetson Orin Nano with no significant overhead.
+    KV cache cost per token = 2 * n_kv_heads * head_dim * n_layers * bytes_per_element.
+    bytes_per_element = 1 (Q8_0) — matches --cache-type-k/v q8_0 passed to llama-server.
+    Using FP16 (2 bytes) here would halve the computed context window.
 
     Falls back to file-size scaling for unknown models (conservative).
     """
@@ -309,12 +309,13 @@ def calculate_max_context(model_info, free_memory_mb):
 
     if all(k in model_info for k in ("n_kv_heads", "head_dim", "n_layers")):
         # Architecture-based: accurate for any GQA model.
+        # * 1 = Q8_0 (1 byte/element); change if KV quant flags change.
         bytes_per_token = (2 * model_info["n_kv_heads"] * model_info["head_dim"]
-                           * model_info["n_layers"] * 2)
+                           * model_info["n_layers"] * 1)
         kb_per_token = bytes_per_token / 1024
     else:
-        # Unknown model: size-based fallback (conservative — may undercount context).
-        kb_per_token = 144 * (model_info["size_gb"] / 2.03)
+        # Unknown model: size-based fallback. 72 = Q8_0 cost for Bonsai-8B reference.
+        kb_per_token = 72 * (model_info["size_gb"] / 2.03)
 
     kv_budget_mb = available_mb * 0.85  # 15% headroom for CUDA overhead
 
