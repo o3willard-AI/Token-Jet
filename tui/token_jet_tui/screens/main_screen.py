@@ -119,7 +119,7 @@ class MainScreen(Screen):
         log.debug("_on_model_selected: %r", model_name)
         if not model_name:
             return
-        self._set_switch_status("  [yellow]⟳ Stopping current model…[/yellow]")
+        self._set_switch_status(f"  [yellow]⟳ Switching to {model_name}…[/yellow]")
         self.notify(f"Switching to {model_name}…", timeout=5)
         self._switch_worker(model_name)
 
@@ -141,23 +141,16 @@ class MainScreen(Screen):
         }
         log.debug("_switch_worker: model=%r path=%r", model_name, model_path)
         try:
-            stop = subprocess.run(
-                ["python3", jetson_infer, "stop"],
-                capture_output=True, text=True, timeout=30, env=env,
-            )
-            log.debug("stop: rc=%d stdout=%r", stop.returncode, stop.stdout.strip())
-
-            self.app.call_from_thread(
-                lambda: self._set_switch_status(f"  [yellow]⟳ Loading {model_name}…[/yellow]")
-            )
-
-            start = subprocess.run(
-                ["python3", jetson_infer, "start", "--model", model_path],
+            # Use 'switch' (not stop+start) so SWITCH_LOCK is held during the
+            # transition — prevents the watchdog from restarting the old model
+            # into the gap between stop and start.
+            result = subprocess.run(
+                ["python3", jetson_infer, "switch", model_path],
                 capture_output=True, text=True, timeout=300, env=env,
             )
-            log.debug("start: rc=%d stdout=%r", start.returncode, start.stdout.strip())
-            ok = start.returncode == 0
-            err = start.stderr.strip() or start.stdout.strip() or "unknown error"
+            log.debug("switch: rc=%d stdout=%r", result.returncode, result.stdout.strip())
+            ok = result.returncode == 0
+            err = result.stderr.strip() or result.stdout.strip() or "unknown error"
 
             if ok:
                 self.app.call_from_thread(lambda: self._set_switch_status(""))
