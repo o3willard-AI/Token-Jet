@@ -490,6 +490,30 @@ _ssh "
     fi
 "
 
+# ── NVGPU reinit service ──────────────────────────────────────────────────────
+echo "Installing nvgpu-reinit service..."
+_ssh "
+    echo '${JETSON_PASS}' | sudo -S tee /etc/systemd/system/nvgpu-reinit.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=NVGPU reinit — reload nvgpu after rootfs mounts to fix /lib firmware path
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c '/sbin/modprobe -r nvgpu; /sbin/modprobe nvgpu'
+
+[Install]
+WantedBy=sysinit.target
+SVCEOF
+    echo '${JETSON_PASS}' | sudo -S systemctl daemon-reload
+    echo '${JETSON_PASS}' | sudo -S systemctl enable nvgpu-reinit.service 2>/dev/null \
+        && echo '  nvgpu-reinit: enabled' \
+        || echo '  nvgpu-reinit: enable failed (non-fatal)'
+"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # USB device mode (RNDIS-only)
 # NVIDIA's default enables ACM + UMS + ECM alongside RNDIS. On Windows, ACM

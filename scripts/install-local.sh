@@ -606,6 +606,32 @@ fi
 sudo cp "${REPO_ROOT}/jetson-clocks-boot.service" /etc/systemd/system/jetson-clocks-boot.service
 sudo systemctl daemon-reload 2>/dev/null || true
 
+# ── NVGPU reinit service ──────────────────────────────────────────────────────
+# nvgpu probes at early kernel boot before /lib → /usr/lib symlinks resolve.
+# The firmware path /lib/firmware/nvidia/ga10b/acr-gsp*.prod fails with ELOOP
+# (error -40), leaving the GPU in a CPU-fallback state. A one-shot service that
+# reloads nvgpu after local-fs.target fixes this for every subsequent boot.
+echo "Installing nvgpu-reinit service..."
+sudo tee /etc/systemd/system/nvgpu-reinit.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=NVGPU reinit — reload nvgpu after rootfs mounts to fix /lib firmware path
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c '/sbin/modprobe -r nvgpu; /sbin/modprobe nvgpu'
+
+[Install]
+WantedBy=sysinit.target
+SVCEOF
+sudo systemctl daemon-reload
+sudo systemctl enable nvgpu-reinit.service 2>/dev/null \
+    && echo "  nvgpu-reinit: enabled" \
+    || echo "  nvgpu-reinit: enable failed (non-fatal)"
+
 # ── USB device mode (RNDIS-only) ─────────────────────────────────────────────
 # NVIDIA's default enables ACM + UMS + ECM alongside RNDIS. On Windows, ACM
 # (USB serial) and UMS (16 MB FAT image) cause the host to loop-enumerate the

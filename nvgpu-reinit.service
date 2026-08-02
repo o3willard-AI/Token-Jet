@@ -1,0 +1,13 @@
+[Unit]
+Description=NVGPU reinit — reload nvgpu after rootfs mounts to fix /lib firmware path
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c '/sbin/modprobe -r nvgpu; /sbin/modprobe nvgpu'
+
+[Install]
+WantedBy=sysinit.target
