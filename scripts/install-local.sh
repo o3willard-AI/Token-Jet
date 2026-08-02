@@ -640,6 +640,14 @@ if [[ -f "$USB_START" ]]; then
         echo "  usb-mode start: bcdDevice already at 0x0003"
     fi
 fi
+DHCP_CFG="/opt/nvidia/l4t-usb-device-mode/dhcpd.conf"
+if [[ -f "$DHCP_CFG" ]] && grep -q 'lease-time 15' "$DHCP_CFG"; then
+    sudo sed -i 's/max-lease-time 15;/max-lease-time 3600;/; s/default-lease-time 15;/default-lease-time 3600;/' "$DHCP_CFG"
+    USB_CHANGED=true
+    echo "  usb-mode dhcp: lease time 15 s → 3600 s (prevents SSH drops every 15 s)"
+else
+    echo "  usb-mode dhcp: lease time already configured"
+fi
 if $USB_CHANGED; then
     sudo systemctl restart nv-l4t-usb-device-mode 2>/dev/null \
         && echo "  nv-l4t-usb-device-mode: restarted" \
