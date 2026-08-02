@@ -370,6 +370,39 @@ _ssh "chmod +x ~/Token-Jet/pi/wifi-manager/wifi.py"
 cat "${REPO_ROOT}/pi/wifi-manager.ts" | _pipe_to "~/.pi/agent/extensions/wifi-manager.ts"
 echo "  wifi-manager.ts: OK"
 
+# Merge required settings into settings.json. 'pi install' can rewrite
+# settings.json with only its own fields, stripping extensions/skills/
+# compaction that we deployed above. Run after pi install + extension deploy.
+_ssh "
+    python3 - <<'PYEOF'
+import json, os
+path = os.path.expanduser('~/.pi/agent/settings.json')
+try:
+    current = json.loads(open(path).read()) if os.path.exists(path) else {}
+except Exception:
+    current = {}
+required = {
+    'enableInstallTelemetry': False,
+    'PI_SKIP_VERSION_CHECK': True,
+    'extensions': [
+        '~/.pi/agent/extensions/jetson-provider.ts',
+        '~/.pi/agent/extensions/wifi-manager.ts',
+    ],
+    'skills': ['~/Token-Jet/pi/ddg-search'],
+    'thinkingBudgets': {'minimal': 256, 'low': 512, 'medium': 1024, 'high': 2048, 'xhigh': 4096},
+    'compaction': {'reserveTokens': 4096, 'keepRecentTokens': 2048},
+}
+changed = [k for k in required if k not in current]
+for k in changed:
+    current[k] = required[k]
+if changed:
+    open(path, 'w').write(json.dumps(current, indent=2) + '\n')
+    print('  pi settings: merged missing fields: ' + ', '.join(changed))
+else:
+    print('  pi settings: all required fields present')
+PYEOF
+"
+
 echo "Installing Wi-Fi sudoers rule..."
 _ssh "
     RULE='${JETSON_USER} ALL=(ALL) NOPASSWD: /usr/bin/nmcli'

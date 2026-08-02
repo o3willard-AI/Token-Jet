@@ -448,6 +448,38 @@ cp "${REPO_ROOT}/pi/wifi-manager.ts" ~/.pi/agent/extensions/wifi-manager.ts
 echo "  wifi-manager: ~/.pi/agent/extensions/wifi-manager.ts"
 chmod +x "${REPO_ROOT}/pi/wifi-manager/wifi.py"
 
+# Merge required settings into settings.json. 'pi install' can rewrite
+# settings.json with only its own fields, stripping extensions/skills/
+# compaction that we set above. This runs after pi install and after the
+# extensions are deployed to guarantee all required keys are present.
+python3 - <<'PYEOF'
+import json, os
+path = os.path.expanduser("~/.pi/agent/settings.json")
+try:
+    current = json.loads(open(path).read()) if os.path.exists(path) else {}
+except Exception:
+    current = {}
+required = {
+    "enableInstallTelemetry": False,
+    "PI_SKIP_VERSION_CHECK": True,
+    "extensions": [
+        "~/.pi/agent/extensions/jetson-provider.ts",
+        "~/.pi/agent/extensions/wifi-manager.ts",
+    ],
+    "skills": ["~/Token-Jet/pi/ddg-search"],
+    "thinkingBudgets": {"minimal": 256, "low": 512, "medium": 1024, "high": 2048, "xhigh": 4096},
+    "compaction": {"reserveTokens": 4096, "keepRecentTokens": 2048},
+}
+changed = [k for k in required if k not in current]
+for k in changed:
+    current[k] = required[k]
+if changed:
+    open(path, "w").write(json.dumps(current, indent=2) + "\n")
+    print(f"  pi settings: merged missing fields: {', '.join(changed)}")
+else:
+    print("  pi settings: all required fields present")
+PYEOF
+
 # Write the jetson-local API key into auth.json so pi's auth check always
 # passes for the local provider. pi requires every provider to have auth
 # configured; llama-server ignores the Bearer header since it has no key.
