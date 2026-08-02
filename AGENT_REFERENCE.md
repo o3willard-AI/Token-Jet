@@ -72,8 +72,12 @@ The core server management utility. Runs on the Jetson.
 --ctx-size <calculated>
 --host 0.0.0.0
 --port 1234
+--metrics
+--no-context-shift
 --reasoning auto         (routes <think> tokens to reasoning_content field)
 --reasoning-budget N     (optional cap from config; 0 = disabled)
+--cache-type-k q8_0      (KV quantization — halves KV cache vs FP16)
+--cache-type-v q8_0
 ```
 
 **Binary selection:**
@@ -83,8 +87,10 @@ The core server management utility. Runs on the Jetson.
 **Context calculation:**
 - Reads model architecture from GGUF metadata (KV heads, head dim, layer count)
 - Hardcoded fallback table for known models (`bonsai8b`, `bonsai8b-g64`, `bonsai27b`)
-- Formula: `kv_budget_mb = free_memory_mb * 0.85`; divides by per-token KV cost
-- Constants: `SAFETY_MARGIN_MB=512`, `MIN_FREE_MB=256`
+- Formula: `kv_budget_mb = available_mb * 0.85`; divides by per-token KV cost at Q8_0 (1 byte/element)
+- **IMPORTANT:** KV cost uses `* 1` (Q8_0), not `* 2` (FP16). Changing the `--cache-type-k/v` flags requires updating the formula too or context will be halved.
+- Cap scales with model size: base 20480 at 2.5 GB reference; +4096 tokens per 200 MB below reference
+- Constants: `SAFETY_MARGIN_MB=512`, `MIN_FREE_MB=256`, `CTX_SCALE_REF_MB=2500`, `CTX_SCALE_BASE=20480`, `CTX_SCALE_STEP_MB=200`, `CTX_SCALE_STEP=4096`
 
 **Config file:** `~/.config/token-jet/config.toml`
 ```toml
@@ -319,7 +325,7 @@ rm -f "$TMPF"
 ## Known Constraints and Gotchas
 
 - **Build job cap:** `install-local.sh` caps CMake at 3 parallel jobs. Each `nvcc` invocation uses ~1.5 GB; 4 jobs × 1.5 GB = 6 GB which exhausts the 8 GB Jetson. Do not raise without testing.
-- **PrismML fork not built by install-local.sh:** Only `install.sh` (workstation path) builds the PrismML fork. The local installer skips it to keep install time manageable on fresh machines. Users who install locally and want Bonsai GPU inference need to build it manually.
+- **PrismML fork built by both install paths:** `install-local.sh` builds the PrismML fork by default (since 2026-07-26). Pass `--no-prism-build` to skip. Without it, Bonsai falls back to CPU.
 - **CUDA path:** JetPack puts nvcc at `/usr/local/cuda-X.Y/bin/nvcc`, not in PATH by default. `install-local.sh` adds it to `~/.bashrc` and exports it during the install session so CMake finds it.
 - **`pi install` is interactive:** Uses `yes |` to pipe `y` to its prompts. The `pi` binary must be on PATH when this runs — the npm prefix must already be set.
 - **`nmcli -m multiline` parsing:** Using `line.partition(":")` is intentional — SSIDs can contain colons; `split(":", 1)` or `split(":")` would give incorrect results for the key. The current code correctly handles all SSID characters.

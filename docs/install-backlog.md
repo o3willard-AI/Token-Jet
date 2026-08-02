@@ -6,6 +6,28 @@ Issues found during pre-wipe audit (2026-07-25). All three blockers and most war
 
 ---
 
+## Fixed 2026-08-01
+
+### FX1 — Unwanted pi packages installed on every fresh deploy
+**Commit:** `d15f452`  
+`install-local.sh` and `install.sh` both called `yes | pi install` for `@plannotator/pi-extension`, `@juicesharp/rpiv-ask-user-question`, and `pi-knowledge`. Even when the npm install failed, `pi install` registered the packages in `~/.pi/agent/settings.json`, bloating the context window on every session. Removed all three `pi install` calls from both scripts.
+
+### FX2 — pi `settings.json` never deployed on fresh install
+**Commit:** `d15f452`  
+The repo's `pi/settings.json` was guarded by `if [[ ! -f ~/.pi/agent/settings.json ]]`, but `pi install npm:pi-mcp-adapter` (which ran first) creates that file as a side effect. Moved the settings.json deployment to before the `pi install` step so the repo version actually lands on fresh installs.
+
+### FX3 — TUI model switch bypassed SWITCH_LOCK, causing watchdog race
+**Commit:** `475f46b`  
+`_switch_worker` in `main_screen.py` called `jetson-infer stop` then `jetson-infer start` as two separate commands. No SWITCH_LOCK was set during the gap, so the watchdog saw the server go dark, treated it as a crash, and restarted the startup model — racing against (and overwriting) the TUI's `start` call. Bonsai and any non-default model consistently failed to load. Fixed by calling `jetson-infer switch` instead, which holds SWITCH_LOCK for the full transition.
+
+### FX4 — Context formula used FP16 bytes/element instead of Q8_0
+**Commit:** `ce6de05`  
+`calculate_max_context` computed KV cost with `* 2` (FP16, 2 bytes/element), but llama-server is launched with `--cache-type-k/v q8_0` (1 byte/element). This halved the computed context window. Bonsai-8B landed at 12288 instead of 24576. The old hard cap of 20480 masked the bug for Qwen3.5-4B (the physics calculation exceeded the cap anyway). The size-based fallback coefficient was also wrong (144 → 72). Fixed by using `* 1` for Q8_0 throughout.
+
+---
+
+---
+
 ## Blockers — `install.sh` only
 
 ### B1 — NodeSource install broken
