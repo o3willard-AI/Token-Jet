@@ -251,7 +251,8 @@ fi
 
 _ssh "mkdir -p '${INSTALL_BASE}' '${BIN_DIR}'"
 _ssh "
-    if [[ ! -d '${INSTALL_BASE}/venv' ]]; then
+    if [[ ! -x '${INSTALL_BASE}/venv/bin/pip' ]]; then
+        rm -rf '${INSTALL_BASE}/venv'
         python3 -m venv '${INSTALL_BASE}/venv'
         echo 'Created venv'
     else
