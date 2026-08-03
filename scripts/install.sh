@@ -200,16 +200,22 @@ echo "Python: ${PY_MAJOR}.${PY_MINOR} OK"
 echo ""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# System tools — fd and ripgrep needed by the pi coding agent.
-# Without these, pi downloads its own ARM binaries on every fresh install.
-# fd is packaged as 'fd-find' on Ubuntu with the binary named 'fdfind';
-# we add a 'fd' symlink so pi finds it under the expected name.
+# OS upgrade + system tools
 # ─────────────────────────────────────────────────────────────────────────────
-echo "Installing system tools (fd, ripgrep)..."
+echo "Upgrading Ubuntu packages..."
+_ssh "
+    echo '${JETSON_PASS}' | sudo -S apt-get update -qq
+    echo '${JETSON_PASS}' | sudo -S DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq
+"
+echo "  apt upgrade: OK"
+echo ""
+
+echo "Installing system tools (fd, ripgrep, python3-venv)..."
 _ssh "
     MISSING=()
     command -v fdfind &>/dev/null || dpkg -l fd-find &>/dev/null || MISSING+=(fd-find)
     command -v rg     &>/dev/null || MISSING+=(ripgrep)
+    python3 -m venv --help &>/dev/null || MISSING+=(python3-venv)
     if [[ \${#MISSING[@]} -gt 0 ]]; then
         echo '${JETSON_PASS}' | sudo -S apt-get install -y -q \"\${MISSING[@]}\"
     fi
@@ -218,7 +224,7 @@ _ssh "
         echo '${JETSON_PASS}' | sudo -S ln -sf \$(which fdfind) /usr/local/bin/fd
     fi
 "
-echo "  fd, ripgrep: OK"
+echo "  fd, ripgrep, python3-venv: OK"
 echo ""
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -111,6 +111,13 @@ if [[ "$MODE" == "uninstall" ]]; then
     exit 0
 fi
 
+# ── OS upgrade ───────────────────────────────────────────────────────────────
+echo "Upgrading Ubuntu packages..."
+sudo apt-get update -qq
+sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq
+echo "  apt upgrade: OK"
+echo ""
+
 # ── Prerequisite check ────────────────────────────────────────────────────────
 echo "Checking prerequisites..."
 
