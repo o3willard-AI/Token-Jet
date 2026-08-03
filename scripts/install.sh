@@ -337,7 +337,11 @@ _ssh "
     fi
     if ! \$NODE_OK; then
         echo '  Installing Node.js 22 (via NodeSource)...'
-        curl -fsSL https://deb.nodesource.com/setup_22.x | echo '${JETSON_PASS}' | sudo -SE bash - 2>/dev/null
+        echo '${JETSON_PASS}' | sudo -S apt-get remove -y -qq nodejs 2>/dev/null || true
+        NSTMP=\$(mktemp)
+        curl -fsSL https://deb.nodesource.com/setup_22.x > \"\$NSTMP\"
+        echo '${JETSON_PASS}' | sudo -SE bash \"\$NSTMP\"
+        rm -f \"\$NSTMP\"
         echo '${JETSON_PASS}' | sudo -S apt-get install -y -qq nodejs
     fi
     echo \"  Node.js \$(node --version): OK\"
