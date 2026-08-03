@@ -171,6 +171,85 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // ── /secure-jet slash command ──────────────────────────────────────────────
+  // Air-gaps the Jetson: turns off the WiFi radio AND deletes all saved WiFi
+  // profiles so it cannot auto-reconnect on reboot. The only remaining path
+  // in is USB-C Ethernet (192.168.55.1). Restoring WiFi requires connecting
+  // via USB and running /wifi or asking the model to reconnect.
+  pi.registerCommand("secure-jet", {
+    description: "Air-gap Token-Jet: disable WiFi radio and wipe all saved WiFi profiles",
+    handler: async (_args, ctx) => {
+      const status = runWifi(["status"]);
+      const ipLine = status.ip
+        ? `  Current WiFi IP: ${status.ip}`
+        : "  (WiFi not currently connected)";
+
+      ctx.ui.notify(
+        [
+          "⚠  SECURE-JET — what will happen:",
+          "",
+          "  1. WiFi radio will be turned OFF",
+          "  2. All saved WiFi profiles will be DELETED",
+          "",
+          ipLine,
+          "",
+          "  After this, the only access to Token-Jet is via USB-C:",
+          "    ssh jetuser@192.168.55.1",
+          "",
+          "  To restore WiFi later: connect via USB, then run /wifi",
+          "  or ask the model to reconnect to a network.",
+        ].join("\n"),
+        "warning"
+      );
+
+      const choice = await ctx.ui.select(
+        "Confirm: air-gap Token-Jet?",
+        ["Yes — disable WiFi permanently", "No — cancel"]
+      );
+      if (!choice || choice.startsWith("No")) {
+        ctx.ui.notify("Cancelled — WiFi unchanged.", "info");
+        return;
+      }
+
+      ctx.ui.setStatus("secure-jet", "Disabling WiFi radio…");
+      const off = runWifi(["off"]);
+      if (off.error) {
+        ctx.ui.setStatus("secure-jet", undefined);
+        ctx.ui.notify(`Failed to disable WiFi radio: ${off.error}`, "error");
+        return;
+      }
+
+      ctx.ui.setStatus("secure-jet", "Deleting saved WiFi profiles…");
+      const forget = runWifi(["forget-all"]);
+      ctx.ui.setStatus("secure-jet", undefined);
+
+      if (forget.error) {
+        ctx.ui.notify(
+          `WiFi radio is OFF, but profile deletion failed: ${forget.error}\n` +
+          `Profiles may still cause auto-reconnect on reboot. Run /wifi to delete manually.`,
+          "warning"
+        );
+        return;
+      }
+
+      const count: number = forget.count ?? 0;
+      ctx.ui.notify(
+        [
+          "✓  Token-Jet is now air-gapped.",
+          "",
+          `  WiFi radio: OFF`,
+          `  Profiles deleted: ${count}`,
+          "",
+          "  Connect via USB-C:",
+          "    ssh jetuser@192.168.55.1",
+          "",
+          "  To re-enable WiFi: connect via USB → /wifi",
+        ].join("\n"),
+        "info"
+      );
+    },
+  });
+
   // ── /wifi slash command ────────────────────────────────────────────────────
   pi.registerCommand("wifi", {
     description: "Manage Wi-Fi: scan networks, connect, disconnect, or toggle the radio",

@@ -45,15 +45,16 @@ def signal_to_bars(signal):
 
 
 def parse_wifi_list(output):
-    """Parse nmcli -m multiline device wifi list into a list of dicts."""
+    """Parse nmcli -m multiline device wifi list into a list of dicts.
+
+    nmcli multiline output has no blank lines between entries — the repeating
+    IN-USE field marks the start of each new entry, not a blank line.
+    """
     networks = []
     current = {}
 
     for line in output.splitlines():
         if not line.strip():
-            if "ssid" in current:
-                networks.append(current)
-            current = {}
             continue
 
         key, _, val = line.partition(":")
@@ -61,7 +62,10 @@ def parse_wifi_list(output):
         val = val.strip()
 
         if key == "IN-USE":
-            current["in_use"] = (val == "*")
+            # New entry starting — save the previous one if it had an SSID
+            if "ssid" in current:
+                networks.append(current)
+            current = {"in_use": val == "*"}
         elif key == "SSID":
             current["ssid"] = val
         elif key == "SIGNAL":
@@ -149,7 +153,7 @@ def cmd_scan():
     result = []
     for n in networks:
         ssid = n.get("ssid", "")
-        if not ssid or ssid in seen:
+        if not ssid or ssid == "--" or ssid in seen:
             continue
         seen.add(ssid)
         signal = n.get("signal", 0)
@@ -250,6 +254,38 @@ def cmd_forget(ssid):
     return 0
 
 
+def cmd_forget_all():
+    """Delete every saved Wi-Fi connection profile — used by /secure-jet."""
+    out, _, _ = run(["-t", "-f", "NAME,TYPE", "connection", "show"])
+    to_delete = []
+    for line in out.splitlines():
+        parts = line.split(":", 1)
+        if len(parts) == 2 and "wireless" in parts[1].lower():
+            name = parts[0].strip()
+            if name:
+                to_delete.append(name)
+
+    if not to_delete:
+        print(json.dumps({"success": True, "deleted": [], "count": 0}))
+        return 0
+
+    deleted = []
+    errors = []
+    for name in to_delete:
+        _, err, rc = run(["connection", "delete", name], sudo=True)
+        if rc == 0:
+            deleted.append(name)
+        else:
+            errors.append(err.strip() or f"failed to delete '{name}'")
+
+    if errors:
+        print(json.dumps({"success": False, "deleted": deleted, "errors": errors}))
+        return 1
+
+    print(json.dumps({"success": True, "deleted": deleted, "count": len(deleted)}))
+    return 0
+
+
 def main():
     p = argparse.ArgumentParser(
         description="Wi-Fi management for Token-Jet",
@@ -262,6 +298,7 @@ def main():
     sub.add_parser("on",         help="Enable Wi-Fi radio")
     sub.add_parser("off",        help="Disable Wi-Fi radio")
     sub.add_parser("disconnect", help="Disconnect from current network")
+    sub.add_parser("forget-all", help="Delete ALL saved Wi-Fi profiles (used by /secure-jet)")
 
     c = sub.add_parser("connect", help="Connect to a network")
     c.add_argument("ssid", help="Network name (SSID)")
@@ -278,6 +315,7 @@ def main():
         "on":         cmd_on,
         "off":        cmd_off,
         "disconnect": cmd_disconnect,
+        "forget-all": cmd_forget_all,
         "connect":    lambda: cmd_connect(args.ssid, getattr(args, "password", None)),
         "forget":     lambda: cmd_forget(args.ssid),
     }
