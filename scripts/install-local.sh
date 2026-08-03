@@ -590,15 +590,19 @@ TOML_EOF
     fi
 fi
 
-# ── Systemd user service (install only) ──────────────────────────────────────
-if [[ "$MODE" == "install" ]]; then
-    echo "Installing systemd service..."
-    mkdir -p ~/.config/systemd/user/
-    cp ~/bin/jetson-infer.service ~/.config/systemd/user/jetson-infer.service
-    systemctl --user daemon-reload 2>/dev/null || true
+# ── Systemd user service ─────────────────────────────────────────────────────
+# Refresh the service file on every run so --upgrade picks up changes.
+echo "Installing jetson-infer service..."
+mkdir -p ~/.config/systemd/user/
+cp ~/bin/jetson-infer.service ~/.config/systemd/user/jetson-infer.service
+systemctl --user daemon-reload 2>/dev/null || true
+if [[ "$MODE" == "upgrade" ]]; then
+    systemctl --user restart jetson-infer 2>/dev/null || true
+    echo "  jetson-infer service: restarted"
+else
     systemctl --user enable jetson-infer 2>/dev/null || true
     sudo loginctl enable-linger "$JETSON_USER" 2>/dev/null || true
-    echo "  systemd service: enabled"
+    echo "  jetson-infer service: enabled"
 fi
 
 # ── jetson-clocks service (install + upgrade) ─────────────────────────────────
