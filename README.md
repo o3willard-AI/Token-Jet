@@ -42,13 +42,13 @@ Token-Jet turns a Jetson Orin Nano into a self-contained local AI server. One co
 
 ### Software — what JetPack gives you out of the box
 
-Token-Jet is designed to work with a **stock JetPack 6.x image** (Ubuntu 22.04). Everything below comes pre-installed:
+Token-Jet is designed to work with a **stock JetPack 6.x image** (Ubuntu 24.04). Everything below comes pre-installed:
 
 | What | Why it's needed |
 |------|----------------|
-| Ubuntu 22.04 | Base OS |
+| Ubuntu 24.04 | Base OS |
 | CUDA 12.x + cuDNN | GPU inference via llama.cpp |
-| Python 3.10 | TUI and jetson-infer utility |
+| Python 3.12 | TUI and jetson-infer utility |
 | `curl`, `git` | Bootstrap and source cloning |
 
 > **Haven't flashed JetPack yet?** See [`docs/hardware-setup.md`](docs/hardware-setup.md) for a step-by-step guide from unboxed device to ready-to-install.
@@ -72,7 +72,8 @@ The install script handles all of this automatically — you don't need to do it
 | `jetson-infer` systemd service | Auto-starts inference server on boot |
 | `pi-web` systemd service | Auto-starts browser UI on boot, port 30141 |
 | Wi-Fi sudoers rule | `/etc/sudoers.d/token-jet-wifi` — lets the pi wifi-manager skill run `nmcli` without a password prompt |
-| USB device mode fix | Patches NVIDIA L4T USB gadget config to RNDIS-only — prevents Windows from loop-enumerating the composite ACM+UMS+ECM gadget |
+| USB device mode fix | Patches NVIDIA L4T USB gadget config to RNDIS-only — prevents Windows from loop-enumerating the composite ACM+UMS+ECM gadget. Also extends DHCP lease to 3600 s (prevents SSH drops on the default 15 s lease) and adds a service ordering drop-in so the USB gadget starts after the GPU module reloads |
+| nvgpu-reinit service | `/etc/systemd/system/nvgpu-reinit.service` — reloads the nvgpu kernel module after rootfs mounts, fixing a boot-time firmware path failure that would otherwise cause all inference to fall back to CPU |
 
 ---
 
@@ -108,20 +109,9 @@ source ~/.bashrc
 token-jet
 ```
 
-> **Expected warnings during the pi install step**
+> **Expected output during the pi install step**
 >
-> Near the end of the install you'll see output like this — it looks alarming but is completely normal:
->
-> ```
-> WARNING: pi-mcp-adapter install failed
-> WARNING: @plannotator/pi-extension install failed
-> WARNING: @juicesharp/rpiv-ask-user-question install failed
-> WARNING: pi-knowledge install failed
-> ```
->
-> The pi coding agent has an ecosystem of third-party extensions. When you run `pi install` it tries to install all of them, including ones it can't reach or that have version conflicts. These four are optional community plugins that Token-Jet doesn't use. Their failure has no effect on the tools that matter: `web_search`, `fetch_url`, model switching, Wi-Fi management, and the pi-web browser UI all install and run correctly.
->
-> The `npm audit` lines warning about "moderate severity vulnerabilities" are similarly benign — they refer to indirect dependencies inside the pi package itself, not anything introduced by Token-Jet.
+> The `npm audit` lines warning about "moderate severity vulnerabilities" are benign — they refer to indirect dependencies inside the pi package itself, not anything introduced by Token-Jet.
 >
 > If the install finishes and `which pi` returns a path, the install succeeded.
 
@@ -202,8 +192,8 @@ After evaluating models across coding tasks, IT troubleshooting scenarios, and r
 
 | Model | Size | Speed | Max Context | Agent/Coding | Best For |
 |-------|------|:-----:|:-----------:|:------------:|----------|
-| **Qwen3.5-4B-Coder** ⭐ | 2.5 GB | 20 t/s | 32K | ✅ | Recommended starting point — reliable for chat, coding, and agent tasks |
-| **Ternary-Bonsai-8B** | 2.0 GB | 8 t/s | 16–20K | ✅ | Maximum accuracy on complex code generation |
+| **Qwen3.5-4B-Coder** ⭐ | 2.5 GB | 20 t/s | 20K | ✅ | Recommended starting point — reliable for chat, coding, and agent tasks |
+| **Ternary-Bonsai-8B** | 2.2 GB | 8 t/s | 24K | ✅ | Maximum accuracy on complex code generation |
 | **MiniCPM5-1B** | 1.1 GB | 31 t/s | 32K | ❌ | Speed exploration and quick Q&A only |
 
 All three are available directly from the TUI model browser (`Ctrl+D`).
@@ -223,10 +213,10 @@ The fastest option at 31 t/s with a 1.1 GB footprint. Claude-distilled. Useful f
 ### Trade-offs at a glance
 
 - **Speed:** MiniCPM5 (31 t/s) ≫ Qwen3.5 (20 t/s) ≫ Bonsai-8B (8 t/s)
-- **Context:** MiniCPM5 = Qwen3.5 (32K) > Bonsai-8B (16–20K, memory-dependent)
+- **Context:** MiniCPM5 (32K) > Bonsai-8B (24K) > Qwen3.5 (20K)
 - **Code quality:** Bonsai-8B > Qwen3.5 ≫ MiniCPM5
 - **Agent reliability:** Qwen3.5 ✅ · Bonsai-8B ✅ · MiniCPM5 ❌
-- **Disk footprint:** MiniCPM5 (1.1 GB) < Bonsai-8B (2.0 GB) < Qwen3.5 (2.5 GB)
+- **Disk footprint:** MiniCPM5 (1.1 GB) < Bonsai-8B (2.2 GB) < Qwen3.5 (2.5 GB)
 
 ---
 
@@ -259,6 +249,7 @@ Token-Jet installs and fully configures the [pi coding agent](https://github.com
 | `/models` | Show all downloaded models with sizes and active marker |
 | `/switch` | Interactive model picker — select with arrow keys, or pass a filename directly: `/switch qwen3.5-4B-super-coder.Q4_0.gguf` |
 | `/wifi` | Interactive Wi-Fi manager — scan networks, connect, disconnect, or toggle the radio |
+| `/secure-jet` | Air-gap the Jetson: disables the Wi-Fi radio and deletes all saved Wi-Fi profiles so it cannot auto-reconnect on reboot. Only USB-C access remains (`ssh jetuser@192.168.55.1`). Reconnect via USB → `/wifi` to restore Wi-Fi |
 
 After a model switch completes, type `/quit` and reopen pi — your session is restored and pi reconnects to the new model.
 
@@ -290,7 +281,7 @@ Wi-Fi control is handled by `nmcli` with a dedicated sudoers rule (`/etc/sudoers
 The install script handles everything automatically. When complete, SSH into the Jetson and run `pi` — the Jetson provider is already configured:
 
 ```bash
-ssh sblanken@<jetson-ip>
+ssh ubuntu@<jetson-ip>
 pi
 ```
 
@@ -515,9 +506,11 @@ Endpoint: `http://<jetson-ip>:1234/v1`
 jetson-infer start                                  # Start the default model
 jetson-infer start --model ~/models/foo.gguf        # Start any model by full path
 jetson-infer start --watchdog                       # Start with health + memory monitoring
+jetson-infer switch qwen3.5-4B-super-coder.Q4_0.gguf  # Switch to a different model
 jetson-infer status                                 # Show running model, memory, health
 jetson-infer stop                                   # Stop the server
 jetson-infer models                                 # List downloaded models + estimated context
+jetson-infer usb-status                             # Show USB gadget state and air-gapped endpoint URLs
 jetson-infer install                                # Install systemd service (auto-start on boot)
 ```
 
@@ -525,8 +518,8 @@ jetson-infer install                                # Install systemd service (a
 
 | Model | Context allocated |
 |-------|:-----------------:|
-| Qwen3.5-4B-Coder | 32768 |
-| Ternary-Bonsai-8B | 16384–20480 |
+| Qwen3.5-4B-Coder | 20480 |
+| Ternary-Bonsai-8B | 24576 |
 | MiniCPM5-1B | 32768 |
 
 The **default model** is set in `~/.config/token-jet/config.toml`:
