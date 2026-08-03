@@ -551,13 +551,15 @@ _ssh "
             echo '  usb-mode start: bcdDevice already at 0x0003'
         fi
     fi
-    DHCP_CFG='/opt/nvidia/l4t-usb-device-mode/dhcpd.conf'
-    DHCP_TMP=\$(mktemp)
-    printf 'max-lease-time 3600;\ndefault-lease-time 3600;\n\nsubnet 192.168.55.0 netmask 255.255.255.0 {\n    range 192.168.55.100 192.168.55.100;\n}\n' > \"\$DHCP_TMP\"
-    echo '${JETSON_PASS}' | sudo -S cp \"\$DHCP_TMP\" \"\$DHCP_CFG\"
-    rm -f \"\$DHCP_TMP\"
-    USB_CHANGED=true
-    echo '  usb-mode dhcp: lease time set to 3600 s'
+    if [[ -f \"\$USB_CFG\" ]]; then
+        if grep -q 'net_dhcp_lease_time=15' \"\$USB_CFG\"; then
+            echo '${JETSON_PASS}' | sudo -S sed -i 's/net_dhcp_lease_time=15/net_dhcp_lease_time=3600/' \"\$USB_CFG\"
+            USB_CHANGED=true
+            echo '  usb-mode dhcp: lease time 15 s → 3600 s'
+        else
+            echo '  usb-mode dhcp: lease time already configured'
+        fi
+    fi
     echo '${JETSON_PASS}' | sudo -S mkdir -p /etc/systemd/system/nv-l4t-usb-device-mode.service.d/
     DROPIN_TMP=\$(mktemp)
     printf '[Unit]\nAfter=nvgpu-reinit.service\n' > \"\$DROPIN_TMP\"

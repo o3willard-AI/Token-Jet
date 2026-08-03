@@ -670,21 +670,15 @@ if [[ -f "$USB_START" ]]; then
         echo "  usb-mode start: bcdDevice already at 0x0003"
     fi
 fi
-# Write dhcpd.conf unconditionally — the service creates this file on first
-# run, but the service can fail at boot before install-local.sh runs (udev
-# queue race with nvgpu-reinit). Writing it ourselves guarantees 3600 s leases
-# regardless of whether the service has successfully run yet.
-DHCP_CFG="/opt/nvidia/l4t-usb-device-mode/dhcpd.conf"
-sudo tee "$DHCP_CFG" > /dev/null << 'DHCPEOF'
-max-lease-time 3600;
-default-lease-time 3600;
-
-subnet 192.168.55.0 netmask 255.255.255.0 {
-    range 192.168.55.100 192.168.55.100;
-}
-DHCPEOF
-USB_CHANGED=true
-echo "  usb-mode dhcp: lease time set to 3600 s"
+if [[ -f "$USB_CFG" ]]; then
+    if grep -q 'net_dhcp_lease_time=15' "$USB_CFG"; then
+        sudo sed -i 's/net_dhcp_lease_time=15/net_dhcp_lease_time=3600/' "$USB_CFG"
+        USB_CHANGED=true
+        echo "  usb-mode dhcp: lease time 15 s → 3600 s"
+    else
+        echo "  usb-mode dhcp: lease time already configured"
+    fi
+fi
 
 # Drop-in: make nv-l4t-usb-device-mode start after nvgpu-reinit.
 # nvgpu module reload floods udev events; the USB service times out waiting
