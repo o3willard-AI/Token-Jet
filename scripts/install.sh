@@ -552,15 +552,18 @@ _ssh "
         fi
     fi
     DHCP_CFG='/opt/nvidia/l4t-usb-device-mode/dhcpd.conf'
-    if [[ -f \"\$DHCP_CFG\" ]] && grep -q 'lease-time 15' \"\$DHCP_CFG\"; then
-        echo '${JETSON_PASS}' | sudo -S sed -i \
-            's/max-lease-time 15;/max-lease-time 3600;/; s/default-lease-time 15;/default-lease-time 3600;/' \
-            \"\$DHCP_CFG\"
-        USB_CHANGED=true
-        echo '  usb-mode dhcp: lease time 15 s → 3600 s (prevents SSH drops every 15 s)'
-    else
-        echo '  usb-mode dhcp: lease time already configured'
-    fi
+    DHCP_TMP=\$(mktemp)
+    printf 'max-lease-time 3600;\ndefault-lease-time 3600;\n\nsubnet 192.168.55.0 netmask 255.255.255.0 {\n    range 192.168.55.100 192.168.55.100;\n}\n' > \"\$DHCP_TMP\"
+    echo '${JETSON_PASS}' | sudo -S cp \"\$DHCP_TMP\" \"\$DHCP_CFG\"
+    rm -f \"\$DHCP_TMP\"
+    USB_CHANGED=true
+    echo '  usb-mode dhcp: lease time set to 3600 s'
+    echo '${JETSON_PASS}' | sudo -S mkdir -p /etc/systemd/system/nv-l4t-usb-device-mode.service.d/
+    DROPIN_TMP=\$(mktemp)
+    printf '[Unit]\nAfter=nvgpu-reinit.service\n' > \"\$DROPIN_TMP\"
+    echo '${JETSON_PASS}' | sudo -S cp \"\$DROPIN_TMP\" /etc/systemd/system/nv-l4t-usb-device-mode.service.d/after-nvgpu.conf
+    rm -f \"\$DROPIN_TMP\"
+    echo '  usb-mode ordering: After=nvgpu-reinit.service drop-in installed'
     if \$USB_CHANGED; then
         echo '${JETSON_PASS}' | sudo -S systemctl restart nv-l4t-usb-device-mode 2>/dev/null \
             && echo '  nv-l4t-usb-device-mode: restarted' \
