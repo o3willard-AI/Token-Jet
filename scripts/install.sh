@@ -215,7 +215,7 @@ _ssh "
     MISSING=()
     command -v fdfind &>/dev/null || dpkg -l fd-find &>/dev/null || MISSING+=(fd-find)
     command -v rg     &>/dev/null || MISSING+=(ripgrep)
-    python3 -m venv --help &>/dev/null || MISSING+=(python3-venv)
+    dpkg -l python${PY_MAJOR}.${PY_MINOR}-venv &>/dev/null || MISSING+=(python${PY_MAJOR}.${PY_MINOR}-venv)
     if [[ \${#MISSING[@]} -gt 0 ]]; then
         echo '${JETSON_PASS}' | sudo -S apt-get install -y -q \"\${MISSING[@]}\"
     fi
