@@ -451,6 +451,7 @@ PYEOF
 echo "  pi coding agent: configured"
 
 echo "Installing pi-web service..."
+_ssh "mkdir -p ~/.config/systemd/user/"
 cat "${REPO_ROOT}/pi-web.service" | _pipe_to "~/.config/systemd/user/pi-web.service"
 _ssh "
     mkdir -p ~/.config/systemd/user/
@@ -487,6 +488,7 @@ _ssh "
     mkdir -p ~/shared
     echo '  shared directory: ~/shared/'
 "
+_ssh "mkdir -p ~/.config/systemd/user/"
 cat "${REPO_ROOT}/dufs.service" | _pipe_to "~/.config/systemd/user/dufs.service"
 _ssh "
     mkdir -p ~/.config/systemd/user/
