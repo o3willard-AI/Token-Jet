@@ -34,10 +34,10 @@ _RECOMMENDED: list[tuple[str, str, str, str, str]] = [
         "Strong code generation, 20 t/s",
     ),
     (
-        "prism-ml/Ternary-Bonsai-8B-gguf",
-        "Ternary-Bonsai-8B",
-        "~2.2 GB", "Experimental",
-        "Ternary-trained 8B — Q2_0 has corrupt HF upload; try Q2_0_g64",
+        "bartowski/Nanbeige_Nanbeige4.2-3B-GGUF",
+        "Nanbeige 4.2-3B (Q4_K_S)",
+        "~2.6 GB", "Reasoning",
+        "256K context reasoning model — strong coding and agent tasks",
     ),
     # ── Community picks ───────────────────────────────────────────────────────
     (

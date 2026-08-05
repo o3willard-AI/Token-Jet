@@ -59,10 +59,9 @@ The install script handles all of this automatically — you don't need to do it
 
 | What | Where it lands |
 |------|---------------|
-| `cmake`, `build-essential`, `cuda-nvcc`, `libcublas-dev` | System packages (via `apt`) |
+| `cmake`, `build-essential`, `cuda-nvcc-13-2`, `libcublas-dev-13-2` | System packages (via `apt`) |
 | Node.js 22 | System package (via NodeSource — required by pi and pi-web) |
-| llama.cpp (CUDA build) | `~/llama.cpp/` |
-| PrismML llama.cpp fork | `~/llama.cpp-prism/` (for Bonsai ternary models) |
+| llama.cpp (CUDA build) | `~/llama.cpp-prism/` |
 | Token-Jet TUI | `~/.local/share/token-jet/` (isolated Python venv) |
 | `jetson-infer` utility | `~/bin/jetson-infer` |
 | `token-jet` launcher | `~/.local/bin/token-jet` |
@@ -92,15 +91,13 @@ curl -sL https://raw.githubusercontent.com/o3willard-AI/Token-Jet/main/scripts/i
 **What happens next** (the script runs unattended — expect 30–45 minutes total):
 
 1. Clones this repo to `~/Token-Jet`
-2. Installs `cmake`, `build-essential`, and `cuda-nvcc` if missing
+2. Installs `cmake`, `build-essential`, `cuda-nvcc-13-2`, and `libcublas-dev-13-2` if missing
 3. Installs Node.js 22 via NodeSource if not already present
-4. Detects your CUDA version and architecture automatically
-5. Clones and builds `llama.cpp` from source with CUDA support *(~15–25 min)*
-6. Clones and builds the PrismML llama.cpp fork for Bonsai GPU support *(~10–15 min)* — skip with `--no-prism-build` if you don't use Bonsai models
-7. Installs the TUI into an isolated Python venv
-8. Deploys `jetson-infer` and creates the `token-jet` launcher
-9. Installs the pi coding agent and pi-web browser UI via npm
-10. Writes a default config, enables the inference server service, and starts the pi-web service
+4. Clones and builds the PrismML llama.cpp fork with CUDA support *(~25–30 min)*
+5. Installs the TUI into an isolated Python venv
+6. Deploys `jetson-infer` and creates the `token-jet` launcher
+7. Installs the pi coding agent and pi-web browser UI via npm
+8. Writes a default config, enables the inference server service, and starts the pi-web service
 
 When it finishes:
 
@@ -138,7 +135,7 @@ The installer SSHs into the Jetson, runs the same deployment steps remotely, the
   --upgrade          Re-deploy source files; preserve config and models
   --self-update      Pull latest from GitHub, then upgrade automatically
   --uninstall        Remove Token-Jet from the Jetson
-  --no-prism-build   Skip PrismML fork build (if you don't use Bonsai models)
+  --prism-build      Build PrismML fork (only needed for Bonsai ternary models)
 ```
 
 **Tip — skip the password prompt with SSH keys:**
@@ -188,12 +185,12 @@ ssh-copy-id ubuntu@<jetson-ip>
 
 ## Recommended Models
 
-After evaluating models across coding tasks, IT troubleshooting scenarios, and real-world agent usage on the Jetson Orin Nano 8 GB, we recommend these three. Assessments reflect July 2026 observations.
+After evaluating models across coding tasks, IT troubleshooting scenarios, and real-world agent usage on the Jetson Orin Nano 8 GB, we recommend these three. Assessments reflect August 2026 observations.
 
 | Model | Size | Speed | Max Context | Agent/Coding | Best For |
 |-------|------|:-----:|:-----------:|:------------:|----------|
 | **Qwen3.5-4B-Coder** ⭐ | 2.5 GB | 20 t/s | 20K | ✅ | Recommended starting point — reliable for chat, coding, and agent tasks |
-| **Ternary-Bonsai-8B** | 2.2 GB | 8 t/s | 24K | ✅ | Maximum accuracy on complex code generation |
+| **Nanbeige 4.2-3B** | 2.6 GB | ~18 t/s | 32K | ✅ | Reasoning model with 256K training context — strong on complex tasks |
 | **MiniCPM5-1B** | 1.1 GB | 31 t/s | 32K | ❌ | Speed exploration and quick Q&A only |
 
 All three are available directly from the TUI model browser (`Ctrl+D`).
@@ -202,9 +199,9 @@ All three are available directly from the TUI model browser (`Ctrl+D`).
 
 The reliable all-rounder. Solid code generation, dependable multi-step agent behavior, and 32K context at 20 t/s. The Q4_0 quant keeps it under 2.5 GB. This is the model to start with and return to as a baseline when evaluating others.
 
-### Ternary-Bonsai-8B (Q2_0)
+### Nanbeige 4.2-3B (Q4_K_S)
 
-The accuracy leader. Ternary-trained weights (values constrained to {−1, 0, +1} during training) packed into standard Q2_0 format — consistently handles complex coding challenges that trip up the others. Requires the PrismML llama.cpp fork for GPU inference (installed automatically). The cost is speed — 8 t/s. Best for batch or offline work where quality matters more than responsiveness.
+A reasoning model trained with a 256K context window. The `<think>` blocks give it an explicit chain-of-thought step before answering, which helps on complex coding and multi-step agent tasks. Standard GGUF — no special build required. At 2.6 GB and ~18 t/s it sits in the same tier as Qwen3.5 with slightly higher complexity handling. Download `Nanbeige4.2-3B-Q4_K_S.gguf` from the TUI model browser.
 
 ### MiniCPM5-1B (Q8_0)
 
@@ -212,11 +209,11 @@ The fastest option at 31 t/s with a 1.1 GB footprint. Claude-distilled. Useful f
 
 ### Trade-offs at a glance
 
-- **Speed:** MiniCPM5 (31 t/s) ≫ Qwen3.5 (20 t/s) ≫ Bonsai-8B (8 t/s)
-- **Context:** MiniCPM5 (32K) > Bonsai-8B (24K) > Qwen3.5 (20K)
-- **Code quality:** Bonsai-8B > Qwen3.5 ≫ MiniCPM5
-- **Agent reliability:** Qwen3.5 ✅ · Bonsai-8B ✅ · MiniCPM5 ❌
-- **Disk footprint:** MiniCPM5 (1.1 GB) < Bonsai-8B (2.2 GB) < Qwen3.5 (2.5 GB)
+- **Speed:** MiniCPM5 (31 t/s) ≫ Qwen3.5 (20 t/s) > Nanbeige 4.2 (~18 t/s)
+- **Context:** MiniCPM5 (32K) ≈ Nanbeige 4.2 (32K) > Qwen3.5 (20K)
+- **Code quality:** Nanbeige 4.2 ≥ Qwen3.5 ≫ MiniCPM5
+- **Agent reliability:** Qwen3.5 ✅ · Nanbeige 4.2 ✅ · MiniCPM5 ❌
+- **Disk footprint:** MiniCPM5 (1.1 GB) < Qwen3.5 (2.5 GB) < Nanbeige 4.2 (2.6 GB)
 
 ---
 
@@ -519,7 +516,7 @@ jetson-infer install                                # Install systemd service (a
 | Model | Context allocated |
 |-------|:-----------------:|
 | Qwen3.5-4B-Coder | 20480 |
-| Ternary-Bonsai-8B | 24576 |
+| Nanbeige 4.2-3B | ~24576 |
 | MiniCPM5-1B | 32768 |
 
 The **default model** is set in `~/.config/token-jet/config.toml`:

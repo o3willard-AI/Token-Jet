@@ -14,15 +14,14 @@
 #   --user USER       Jetson SSH username (default: ubuntu)
 #   --pass PASS       SSH password; omit to be prompted, or use --no-pass
 #   --no-pass         Use key-based SSH (no password required)
-#   --no-prism-build  Skip building the PrismML llama.cpp fork (Bonsai GPU support)
+#   --prism-build     Build the PrismML llama.cpp fork (Bonsai ternary GPU support)
 #   -h, --help        Show this help
 #
 # The PrismML fork (https://github.com/PrismML-Eng/llama.cpp, branch pr/q2_0-cuda)
-# is built automatically on fresh install to enable GPU inference for Bonsai ternary
-# models (TYPE_42 quant). On --upgrade it is skipped if already built. Pass
-# --no-prism-build to skip it entirely (e.g. for CI or disk-constrained installs).
-# The build takes ~30 minutes. jetson-infer auto-routes any model with "bonsai"
-# in the filename to ~/llama.cpp-prism/build/bin/llama-server.
+# enables GPU inference for Bonsai ternary models (TYPE_42 quant). It is skipped
+# by default — pass --prism-build to enable it. The build takes ~30 minutes and
+# requires cuda-nvcc-13-2 and libcublas-dev-13-2. jetson-infer auto-routes any
+# model with "bonsai" in the filename to ~/llama.cpp-prism/build/bin/llama-server.
 #
 # Environment variable overrides (useful for CI / scripting):
 #   INSTALL_JETSON_IP    Jetson IP address
@@ -37,7 +36,7 @@ JETSON_USER="${INSTALL_JETSON_USER:-ubuntu}"
 JETSON_PASS="${INSTALL_JETSON_PASS:-}"
 MODE="install"
 USE_SSHPASS=true
-BUILD_PRISM=true
+BUILD_PRISM=false
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
@@ -49,6 +48,7 @@ while [[ $# -gt 0 ]]; do
         --user)             JETSON_USER="$2";   shift 2 ;;
         --pass)             JETSON_PASS="$2";   shift 2 ;;
         --no-pass)          USE_SSHPASS=false;  shift ;;
+        --prism-build)      BUILD_PRISM=true;   shift ;;
         --no-prism-build)   BUILD_PRISM=false;  shift ;;
         -h|--help)
             sed -n '2,22p' "$0" | sed 's/^# //'
@@ -215,7 +215,11 @@ _ssh "
     MISSING=()
     command -v fdfind &>/dev/null || dpkg -l fd-find &>/dev/null || MISSING+=(fd-find)
     command -v rg     &>/dev/null || MISSING+=(ripgrep)
-    dpkg -l python${PY_MAJOR}.${PY_MINOR}-venv &>/dev/null || MISSING+=(python${PY_MAJOR}.${PY_MINOR}-venv)
+    python3 -c 'import ensurepip' &>/dev/null || MISSING+=(python${PY_MAJOR}.${PY_MINOR}-venv)
+    command -v cmake  &>/dev/null || MISSING+=(cmake)
+    command -v g++    &>/dev/null || MISSING+=(build-essential)
+    [ -x /usr/local/cuda-13.2/bin/nvcc ] || MISSING+=(cuda-nvcc-13-2)
+    dpkg -s libcublas-dev-13-2 2>/dev/null | grep -q 'install ok' || MISSING+=(libcublas-dev-13-2)
     if [[ \${#MISSING[@]} -gt 0 ]]; then
         echo '${JETSON_PASS}' | sudo -S apt-get install -y -q \"\${MISSING[@]}\"
     fi
@@ -253,7 +257,7 @@ _ssh "mkdir -p '${INSTALL_BASE}' '${BIN_DIR}'"
 _ssh "
     if [[ ! -x '${INSTALL_BASE}/venv/bin/pip' ]]; then
         rm -rf '${INSTALL_BASE}/venv'
-        python3 -m venv '${INSTALL_BASE}/venv'
+        python3 -m venv '${INSTALL_BASE}/venv' || { echo 'ERROR: venv creation failed — python3-venv may not be installed'; exit 1; }
         echo 'Created venv'
     else
         echo 'Venv exists'
@@ -291,6 +295,14 @@ _ssh "
     if ! grep -q '.local/bin' ~/.bashrc 2>/dev/null; then
         echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc
         echo 'Added ~/.local/bin to PATH in .bashrc'
+    fi
+    if ! grep -q '\$HOME/bin' ~/.bashrc 2>/dev/null; then
+        echo 'export PATH=\"\$HOME/bin:\$PATH\"' >> ~/.bashrc
+        echo 'Added ~/bin to PATH in .bashrc'
+    fi
+    # token-jet → token-jet-tui alias
+    if ! grep -q 'alias token-jet=' ~/.bashrc 2>/dev/null; then
+        echo \"alias token-jet='token-jet-tui'\" >> ~/.bashrc
     fi
 "
 
@@ -380,6 +392,12 @@ cat "${REPO_ROOT}/pi/wifi-manager/wifi.py" | _pipe_to "~/Token-Jet/pi/wifi-manag
 _ssh "chmod +x ~/Token-Jet/pi/wifi-manager/wifi.py"
 cat "${REPO_ROOT}/pi/wifi-manager.ts" | _pipe_to "~/.pi/agent/extensions/wifi-manager.ts"
 echo "  wifi-manager.ts: OK"
+_ssh "mkdir -p ~/Token-Jet/pi/ddg-search/"
+for f in search.js content.js package.json SKILL.md; do
+    cat "${REPO_ROOT}/pi/ddg-search/${f}" | _pipe_to "~/Token-Jet/pi/ddg-search/${f}"
+done
+_ssh "cd ~/Token-Jet/pi/ddg-search && npm install --silent 2>/dev/null"
+echo "  ddg-search skill: OK"
 
 # Merge required settings into settings.json. 'pi install' can rewrite
 # settings.json with only its own fields, stripping extensions/skills/
@@ -506,7 +524,8 @@ _ssh "
 # ── NVGPU reinit service ──────────────────────────────────────────────────────
 echo "Installing nvgpu-reinit service..."
 _ssh "
-    echo '${JETSON_PASS}' | sudo -S tee /etc/systemd/system/nvgpu-reinit.service > /dev/null << 'SVCEOF'
+    NVGPU_TMP=\$(mktemp)
+    cat > \"\$NVGPU_TMP\" << 'SVCEOF'
 [Unit]
 Description=NVGPU reinit — reload nvgpu after rootfs mounts to fix /lib firmware path
 DefaultDependencies=no
@@ -521,6 +540,8 @@ ExecStart=/bin/sh -c '/sbin/modprobe -r nvgpu; /sbin/modprobe nvgpu'
 [Install]
 WantedBy=sysinit.target
 SVCEOF
+    echo '${JETSON_PASS}' | sudo -S cp \"\$NVGPU_TMP\" /etc/systemd/system/nvgpu-reinit.service
+    rm -f \"\$NVGPU_TMP\"
     echo '${JETSON_PASS}' | sudo -S systemctl daemon-reload
     echo '${JETSON_PASS}' | sudo -S systemctl enable nvgpu-reinit.service 2>/dev/null \
         && echo '  nvgpu-reinit: enabled' \
@@ -618,13 +639,16 @@ if $BUILD_PRISM; then
                 2>&1
             echo '  Building llama-server (~30 min on Jetson Orin Nano)...'
             cmake --build ~/llama.cpp-prism/build -j\$(nproc) --target llama-server 2>&1
-            echo '  prism binary: built OK'
+            if [ -f ~/llama.cpp-prism/build/bin/llama-server ]; then
+                echo '  prism binary: built OK'
+            else
+                echo '  ERROR: llama-server not found after build — check cmake output above'
+                exit 1
+            fi
         fi
     "
 else
-    echo "PrismML fork build: skipped (--no-prism-build)"
-    echo "  Bonsai models will fall back to CPU until built manually."
-    echo "  To build later: cd ~/llama.cpp-prism && cmake --build build -j\$(nproc) --target llama-server"
+    echo "PrismML fork build: skipped (pass --prism-build to enable)"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -638,7 +662,7 @@ if [[ "$MODE" == "install" ]]; then
             cat > '${CONFIG_DIR}/config.toml' << 'TOML_EOF'
 # Token-Jet configuration
 model_dir          = \"/home/${JETSON_USER}/models\"
-llama_cpp_bin      = \"/home/${JETSON_USER}/llama.cpp/build/bin\"
+llama_cpp_bin      = \"/home/${JETSON_USER}/llama.cpp-prism/build/bin\"
 server_port        = 1234
 ld_library_path    = \"/usr/local/cuda-13.2/targets/sbsa-linux/lib\"
 jetson_infer_bin   = \"/home/${JETSON_USER}/bin/jetson-infer\"
