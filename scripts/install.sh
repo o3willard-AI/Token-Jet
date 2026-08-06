@@ -14,14 +14,14 @@
 #   --user USER       Jetson SSH username (default: ubuntu)
 #   --pass PASS       SSH password; omit to be prompted, or use --no-pass
 #   --no-pass         Use key-based SSH (no password required)
-#   --prism-build     Build the PrismML llama.cpp fork (Bonsai ternary GPU support)
+#   --no-prism-build  Skip the PrismML llama.cpp build (use if already built)
 #   -h, --help        Show this help
 #
 # The PrismML fork (https://github.com/PrismML-Eng/llama.cpp, branch pr/q2_0-cuda)
-# enables GPU inference for Bonsai ternary models (TYPE_42 quant). It is skipped
-# by default — pass --prism-build to enable it. The build takes ~30 minutes and
-# requires cuda-nvcc-13-2 and libcublas-dev-13-2. jetson-infer auto-routes any
-# model with "bonsai" in the filename to ~/llama.cpp-prism/build/bin/llama-server.
+# is built on every fresh install — it is the llama-server binary used for ALL
+# model inference (not just Bonsai). On --upgrade it is skipped if already built.
+# The build takes ~30 minutes. Pass --no-prism-build only if you already have the
+# binary at ~/llama.cpp-prism/build/bin/llama-server from a previous install.
 #
 # Environment variable overrides (useful for CI / scripting):
 #   INSTALL_JETSON_IP    Jetson IP address
@@ -36,7 +36,7 @@ JETSON_USER="${INSTALL_JETSON_USER:-ubuntu}"
 JETSON_PASS="${INSTALL_JETSON_PASS:-}"
 MODE="install"
 USE_SSHPASS=true
-BUILD_PRISM=false
+BUILD_PRISM=true
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
@@ -48,7 +48,6 @@ while [[ $# -gt 0 ]]; do
         --user)             JETSON_USER="$2";   shift 2 ;;
         --pass)             JETSON_PASS="$2";   shift 2 ;;
         --no-pass)          USE_SSHPASS=false;  shift ;;
-        --prism-build)      BUILD_PRISM=true;   shift ;;
         --no-prism-build)   BUILD_PRISM=false;  shift ;;
         -h|--help)
             sed -n '2,22p' "$0" | sed 's/^# //'
@@ -228,7 +227,7 @@ _ssh "
         echo '${JETSON_PASS}' | sudo -S ln -sf \$(which fdfind) /usr/local/bin/fd
     fi
 "
-echo "  fd, ripgrep, python3-venv: OK"
+echo "  fd, ripgrep, python3-venv, cmake, g++, cuda-nvcc, cublas-dev: OK"
 echo ""
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -648,7 +647,8 @@ if $BUILD_PRISM; then
         fi
     "
 else
-    echo "PrismML fork build: skipped (pass --prism-build to enable)"
+    echo "PrismML fork build: skipped (--no-prism-build)"
+    echo "  WARNING: no llama-server binary will be present unless already built."
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -695,7 +695,7 @@ if [[ "$MODE" == "install" ]]; then
         systemctl --user enable jetson-infer 2>/dev/null || true
         echo 'systemd service: enabled'
     "
-    _ssh "sudo loginctl enable-linger '${JETSON_USER}' 2>/dev/null || true"
+    _ssh "loginctl enable-linger '${JETSON_USER}' 2>/dev/null || true"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────

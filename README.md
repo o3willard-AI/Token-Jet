@@ -93,7 +93,7 @@ curl -sL https://raw.githubusercontent.com/o3willard-AI/Token-Jet/main/scripts/i
 1. Clones this repo to `~/Token-Jet`
 2. Installs `cmake`, `build-essential`, `cuda-nvcc-13-2`, and `libcublas-dev-13-2` if missing
 3. Installs Node.js 22 via NodeSource if not already present
-4. Clones and builds the PrismML llama.cpp fork with CUDA support *(~25–30 min)*
+4. Clones and builds the PrismML llama.cpp fork with CUDA support *(~25–30 min, skipped on --upgrade if already built)*
 5. Installs the TUI into an isolated Python venv
 6. Deploys `jetson-infer` and creates the `token-jet` launcher
 7. Installs the pi coding agent and pi-web browser UI via npm
@@ -135,7 +135,7 @@ The installer SSHs into the Jetson, runs the same deployment steps remotely, the
   --upgrade          Re-deploy source files; preserve config and models
   --self-update      Pull latest from GitHub, then upgrade automatically
   --uninstall        Remove Token-Jet from the Jetson
-  --prism-build      Build PrismML fork (only needed for Bonsai ternary models)
+  --no-prism-build   Skip PrismML build (only if binary already exists from prior install)
 ```
 
 **Tip — skip the password prompt with SSH keys:**
