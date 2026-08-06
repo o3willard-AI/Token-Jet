@@ -12,7 +12,7 @@
 # Options:
 #   --upgrade         Pull latest from GitHub, update TUI and jetson-infer; preserve config and models
 #   --uninstall       Remove TUI, launcher, and systemd service (models and config are kept)
-#   --no-prism-build  Skip building the PrismML llama.cpp fork (Bonsai GPU support)
+#   --no-prism-build  Skip building the PrismML llama.cpp fork (llama-server for all models)
 #   -h, --help        Show this help
 
 set -euo pipefail
@@ -322,19 +322,7 @@ _build_llama() {
     echo "  Disk freed."
 }
 
-# ── Build llama.cpp (used by all models) ─────────────────────────────────────
-_build_llama \
-    "llama.cpp" \
-    "https://github.com/ggml-org/llama.cpp" \
-    "${HOME}/llama.cpp" \
-    ""
-
-echo ""
-
-# ── Build PrismML llama.cpp fork (required for Bonsai GPU inference) ──────────
-# The PrismML fork adds CUDA kernels for TYPE_41/TYPE_42 ternary weights used
-# by Bonsai models. Without it, Bonsai falls back to CPU. Mainline llama.cpp
-# can load Bonsai files but has no GPU path for ternary quantization.
+# ── Build PrismML llama.cpp fork (llama-server for all models) ───────────────
 if $BUILD_PRISM; then
     _build_llama \
         "llama.cpp-prism" \
@@ -344,7 +332,7 @@ if $BUILD_PRISM; then
     echo ""
 else
     echo "── PrismML fork ──────────────────────────────────────────────────────────────"
-    echo "  Skipped (--no-prism-build). Bonsai models will run on CPU until built."
+    echo "  Skipped (--no-prism-build). No llama-server will be available."
     echo "  To build later: ~/Token-Jet/scripts/install-local.sh --upgrade"
     echo ""
 fi
