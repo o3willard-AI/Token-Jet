@@ -142,6 +142,12 @@ if ! _ssh 'echo OK' &>/dev/null; then
     if ! $USE_SSHPASS; then
         echo "  (Key-based auth — make sure your SSH key is installed on the Jetson)"
     fi
+    echo ""
+    echo "  JetPack 6.x ships with SSH disabled. If this is a fresh image, open"
+    echo "  a terminal on the Jetson desktop and run:"
+    echo "    sudo ssh-keygen -A && sudo systemctl enable --now ssh"
+    echo "  Then re-run this installer. Alternatively, run install-local.sh on"
+    echo "  the Jetson directly — it enables SSH automatically."
     exit 1
 fi
 echo "SSH: OK"

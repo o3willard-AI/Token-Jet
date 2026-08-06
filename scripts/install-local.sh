@@ -111,6 +111,20 @@ if [[ "$MODE" == "uninstall" ]]; then
     exit 0
 fi
 
+# ── SSH (JetPack 6.x ships with ssh.service disabled and no host keys) ────────
+echo "Checking SSH..."
+if ! systemctl is-active --quiet ssh 2>/dev/null; then
+    echo "  SSH not running — enabling (JetPack 6.x default)..."
+    # Generate host keys if missing (sshd refuses to start without them)
+    sudo ssh-keygen -A
+    sudo systemctl enable --now ssh \
+        && echo "  ssh: enabled and started" \
+        || echo "  ssh: enable failed — remote installs won't work until fixed"
+else
+    echo "  ssh: already running"
+fi
+echo ""
+
 # ── OS upgrade ───────────────────────────────────────────────────────────────
 echo "Upgrading Ubuntu packages..."
 sudo apt-get update -qq
