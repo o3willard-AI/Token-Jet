@@ -580,7 +580,7 @@ if [[ "$MODE" == "install" ]]; then
         cat > "${CONFIG_DIR}/config.toml" << TOML_EOF
 # Token-Jet configuration
 model_dir            = "/home/${JETSON_USER}/models"
-llama_cpp_bin        = "/home/${JETSON_USER}/llama.cpp/build/bin"
+llama_cpp_bin        = "/home/${JETSON_USER}/llama.cpp-prism/build/bin"
 server_port          = 1234
 ld_library_path      = "${CUDA_LIB_PATH}"
 jetson_infer_bin     = "/home/${JETSON_USER}/bin/jetson-infer"
@@ -610,7 +610,7 @@ if [[ "$MODE" == "upgrade" ]]; then
     echo "  jetson-infer service: restarted"
 else
     systemctl --user enable jetson-infer 2>/dev/null || true
-    sudo loginctl enable-linger "$JETSON_USER" 2>/dev/null || true
+    loginctl enable-linger "$JETSON_USER" 2>/dev/null || true
     echo "  jetson-infer service: enabled"
 fi
 
