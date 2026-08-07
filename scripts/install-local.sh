@@ -12,7 +12,6 @@
 # Options:
 #   --upgrade         Pull latest from GitHub, update TUI and jetson-infer; preserve config and models
 #   --uninstall       Remove TUI, launcher, and systemd service (models and config are kept)
-#   --no-prism-build  Skip building the PrismML llama.cpp fork (llama-server for all models)
 #   -h, --help        Show this help
 
 set -euo pipefail
@@ -20,14 +19,12 @@ set -euo pipefail
 REPO_URL="https://github.com/o3willard-AI/Token-Jet.git"
 CLONE_DIR="${HOME}/Token-Jet"
 MODE="install"
-BUILD_PRISM=true
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --upgrade)        MODE="upgrade";    shift ;;
-        --uninstall)      MODE="uninstall";  shift ;;
-        --no-prism-build) BUILD_PRISM=false; shift ;;
-        -h|--help)        sed -n '2,18p' "$0" | sed 's/^# //'; exit 0 ;;
+        --upgrade)   MODE="upgrade";   shift ;;
+        --uninstall) MODE="uninstall"; shift ;;
+        -h|--help)   sed -n '2,16p' "$0" | sed 's/^# //'; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -64,9 +61,7 @@ elif [[ "$MODE" == "upgrade" ]]; then
     # sections. The sentinel variable prevents an infinite re-exec loop.
     if [[ "${_TOKEN_JET_REEXECED:-}" != "1" ]] && [[ "$PIPED" == "false" ]]; then
         export _TOKEN_JET_REEXECED=1
-        _reexec_args=(--upgrade)
-        $BUILD_PRISM || _reexec_args+=(--no-prism-build)
-        exec "$REPO_ROOT/scripts/install-local.sh" "${_reexec_args[@]}"
+        exec "$REPO_ROOT/scripts/install-local.sh" --upgrade
     fi
 fi
 
@@ -322,20 +317,13 @@ _build_llama() {
     echo "  Disk freed."
 }
 
-# ── Build PrismML llama.cpp fork (llama-server for all models) ───────────────
-if $BUILD_PRISM; then
-    _build_llama \
-        "llama.cpp-prism" \
-        "https://github.com/PrismML-Eng/llama.cpp" \
-        "${HOME}/llama.cpp-prism" \
-        "pr/q2_0-cuda"
-    echo ""
-else
-    echo "── PrismML fork ──────────────────────────────────────────────────────────────"
-    echo "  Skipped (--no-prism-build). No llama-server will be available."
-    echo "  To build later: ~/Token-Jet/scripts/install-local.sh --upgrade"
-    echo ""
-fi
+# ── Build llama.cpp (llama-server for all models) ────────────────────────────
+_build_llama \
+    "llama.cpp" \
+    "https://github.com/ggml-org/llama.cpp" \
+    "${HOME}/llama.cpp" \
+    ""
+echo ""
 
 # ── Models directory ──────────────────────────────────────────────────────────
 mkdir -p "${HOME}/models"
@@ -397,7 +385,10 @@ if command -v node &>/dev/null; then
 fi
 if ! $NODE_OK; then
     echo "  Installing Node.js 22 (via NodeSource)..."
-    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - 2>/dev/null
+    _nodesource_tmp=$(mktemp)
+    curl -fsSL https://deb.nodesource.com/setup_22.x -o "$_nodesource_tmp"
+    sudo -E bash "$_nodesource_tmp" 2>/dev/null
+    rm -f "$_nodesource_tmp"
     sudo apt-get install -y -qq nodejs
 fi
 echo "  Node.js $(node --version): OK"
@@ -580,7 +571,7 @@ if [[ "$MODE" == "install" ]]; then
         cat > "${CONFIG_DIR}/config.toml" << TOML_EOF
 # Token-Jet configuration
 model_dir            = "/home/${JETSON_USER}/models"
-llama_cpp_bin        = "/home/${JETSON_USER}/llama.cpp-prism/build/bin"
+llama_cpp_bin        = "/home/${JETSON_USER}/llama.cpp/build/bin"
 server_port          = 1234
 ld_library_path      = "${CUDA_LIB_PATH}"
 jetson_infer_bin     = "/home/${JETSON_USER}/bin/jetson-infer"
